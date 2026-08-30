@@ -78,18 +78,19 @@ jobs:
           node -e "const r=require('./release.json');if(!r.isDraft||r.isPrerelease||r.assets.length<4)process.exit(1)"
           mkdir assets manifests
           gh release download "$TAG" --dir assets
+          find assets -maxdepth 1 -type f \( -name 'latest*.json' -o -name 'SHA256SUMS.txt' \) -delete
           VERSION=$(node -p "require('./package.json').version")
           PUB_DATE=$(gh release view "$TAG" --json createdAt --jq .createdAt)
           COMMON_ARGS="--assets-dir assets --output-dir manifests --repo $GITHUB_REPOSITORY --version $VERSION --notes-file CHANGELOG.md --pub-date $PUB_DATE"
           node scripts/release/build-target-manifests.mjs $COMMON_ARGS
           node scripts/release/build-latest-manifest.mjs $COMMON_ARGS
           node scripts/release/verify-manifests.mjs $COMMON_ARGS
-          gh release upload "$TAG" manifests/*.json
+          gh release upload "$TAG" manifests/*.json --clobber
       - name: Checksums and final Draft gate
         env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}", TAG: "${{ needs.validate.outputs.tag }}" }
         run: |
           find assets manifests -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
-          gh release upload "$TAG" SHA256SUMS.txt
+          gh release upload "$TAG" SHA256SUMS.txt --clobber
           gh release view "$TAG" --json isDraft,isPrerelease,assets > final-release.json
           node -e "const r=require('./final-release.json');const n=new Set(r.assets.map(x=>x.name));const required=['latest.json','SHA256SUMS.txt'];for(const x of required)if(!n.has(x))process.exit(1);if(!r.isDraft||r.isPrerelease)process.exit(1)"
       - name: Attest public release assets
