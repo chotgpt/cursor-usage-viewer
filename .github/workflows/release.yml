@@ -92,10 +92,15 @@ jobs:
           gh release upload "$TAG" SHA256SUMS.txt
           gh release view "$TAG" --json isDraft,isPrerelease,assets > final-release.json
           node -e "const r=require('./final-release.json');const n=new Set(r.assets.map(x=>x.name));const required=['latest.json','SHA256SUMS.txt'];for(const x of required)if(!n.has(x))process.exit(1);if(!r.isDraft||r.isPrerelease)process.exit(1)"
-      - uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
+      - name: Attest public release assets
+        if: ${{ github.event.repository.private == false }}
+        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
         with:
           subject-path: |
             assets/**
             manifests/**
             SHA256SUMS.txt
+      - name: Record private rehearsal limitation
+        if: ${{ github.event.repository.private }}
+        run: echo 'Artifact attestation is unavailable for user-owned private repositories; it remains required automatically when the repository is public.'
       - run: echo 'Draft verified. This workflow never publishes the release.'
