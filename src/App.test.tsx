@@ -1,188 +1,67 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
 import { invoke } from "@tauri-apps/api/core";
-
 import App from "./App";
+import type { CursorAccountView } from "./types";
 
-vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(),
-}));
-
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 const mockedInvoke = vi.mocked(invoke);
 
-describe("usage query interaction", () => {
+function account(id = "cursor_one", email = "one@example.invalid"): CursorAccountView {
+  return { id, email, authId: `auth0|${id}`, name: null, tags: ["500 credits"], membershipType: "pro", subscriptionStatus: "active", signUpType: "Auth_0", status: null, statusReason: null, source: "cockpit-tools", hasAccessToken: true, hasRefreshToken: true, isCurrent: false,
+    coreUsage: { total: { enabled: true, used: 20, limit: 100, remaining: 80, percentUsed: 20 }, autoComposer: { enabled: true, used: null, limit: null, remaining: null, percentUsed: 11 }, api: { enabled: true, used: null, limit: null, remaining: null, percentUsed: 100 }, onDemand: { enabled: false, used: 0, limit: null, remaining: null, percentUsed: null }, billingCycleStart: "2026-08-20T00:00:00Z", billingCycleEnd: "2026-09-20T00:00:00Z", source: "live", updatedAt: 1788000000, error: null },
+    sand: { usagePercent: 64.5, hasAvailableUsage: true, hasNonZeroIncludedLimit: true, grokPlanLabel: "Grok", currentPeriodStart: null, nextResetTimestampUtc: "2026-09-04T00:00:00Z", accessGranted: true, accessState: "SAND_ACCESS_STATE_GRANTED", blockReason: null, isPaidTrialPlan: false, proAndSuperGrokPlansGrantAccess: true, usageUpdatedAt: 1788000000, accessUpdatedAt: 1788000000, usageError: null, accessError: null },
+    lastError: null, lastErrorAt: null, createdAt: 1, lastUsed: 2 };
+}
+
+describe("multi-account workspace", () => {
   beforeEach(() => {
-    Object.defineProperty(window, "__TAURI_INTERNALS__", {
-      configurable: true,
-      value: {},
-    });
-    mockedInvoke.mockImplementation(async (command) => {
-      if (command === "load_current_cursor_account") {
-        return {
-          id: "local-cursor",
-          email: "viewer@example.com",
-          membership: "pro",
-          signupType: "Google",
-          tags: [],
-          source: "cursor",
-          isActive: true,
-          hasAccessToken: true,
-          hasRefreshToken: true,
-        };
-      }
-      if (command === "import_cockpit_accounts_json") {
-        return [{
-            id: "cursor_imported",
-            email: "imported@example.com",
-            membership: "pro",
-            signupType: "Auth_0",
-            tags: ["测试标签"],
-            source: "cockpit-tools",
-            isActive: true,
-            hasAccessToken: true,
-            hasRefreshToken: true,
-          }, {
-            id: "cursor_imported_two",
-            email: "second@example.com",
-            membership: "business",
-            signupType: "Auth_0",
-            tags: [],
-            source: "cockpit-tools",
-            isActive: false,
-            hasAccessToken: true,
-            hasRefreshToken: false,
-          }];
-      }
-      if (command === "query_cursor_usage") {
-        return {
-          autoPercentUsed: 12.25,
-          apiPercentUsed: 46.5,
-          totalPercentUsed: 31.75,
-          billingCycleStart: "1787875200000",
-          billingCycleEnd: "1790553600000",
-          usagePercent: 64.471011,
-          hasAvailableUsage: true,
-          hasNonZeroIncludedLimit: true,
-          grokPlanLabel: "Grok Bot Plan",
-          currentPeriodStart: "2026-08-28T00:00:00.000Z",
-          nextResetTimestampUtc: "2026-09-04T02:36:21.032Z",
-          sandAccessGranted: true,
-          sandAccessState: "SAND_ACCESS_STATE_GRANTED",
-          sandBlockReason: "",
-          isPaidTrialPlan: false,
-          proAndSuperGrokPlansGrantAccess: true,
-        };
-      }
-      throw new Error(`unexpected command: ${command}`);
+    localStorage.clear();
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    mockedInvoke.mockImplementation(async (command, args) => {
+      if (command === "list_cursor_accounts") return [account()];
+      if (command === "refresh_cursor_account") return { ...account(), lastUsed: 3 };
+      if (command === "import_cockpit_accounts_json") return [account("cursor_imported", "imported@example.invalid")];
+      if (command === "export_cursor_accounts") return JSON.stringify([{ id: "cursor_one", access_token: "fake.secret.token" }]);
+      throw new Error(`unexpected command ${command} ${JSON.stringify(args)}`);
     });
   });
+  afterEach(() => { Reflect.deleteProperty(window, "__TAURI_INTERNALS__"); mockedInvoke.mockReset(); });
 
-  afterEach(() => {
-    Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
-    mockedInvoke.mockReset();
+  it("restores local accounts on startup without reading or refreshing Cursor", async () => {
+    render(<App />);
+    expect(await screen.findByText("one@example.invalid")).toBeVisible();
+    expect(mockedInvoke.mock.calls.map(([command]) => command)).toEqual(["list_cursor_accounts"]);
+    expect(document.body.textContent).not.toContain("fake.secret.token");
   });
 
-  it("keeps query disabled until an account has been loaded", () => {
-    render(<App />);
-    expect(screen.getByRole("button", { name: "查询额度" })).toBeDisabled();
-  });
-
-  it("runs the query on the first click without a confirmation dialog", async () => {
-    const user = userEvent.setup();
-    render(<App />);
-
-    await user.click(screen.getByRole("button", { name: "读取当前 Cursor" }));
-    await screen.findByText("viewer@example.com");
-    await user.click(screen.getByRole("button", { name: "查询额度" }));
-
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    await waitFor(() => {
-      expect(mockedInvoke).toHaveBeenCalledWith("query_cursor_usage");
-    });
-    expect(mockedInvoke.mock.calls.filter(([command]) => command === "query_cursor_usage"))
-      .toHaveLength(1);
-    expect(await screen.findByText("Grok Bot Plan")).toBeVisible();
-    expect(screen.getByText("Sand 已授权")).toBeVisible();
-    expect(screen.getByText("68.3% 可用")).toBeVisible();
-    expect(screen.getByText("12.3%")).toBeVisible();
-    expect(screen.getByText("46.5%")).toBeVisible();
-    expect(screen.getByText("64.5%")).toBeVisible();
-  });
-
-  it("imports Cockpit summaries without sending credentials to the frontend", async () => {
-    const user = userEvent.setup();
-    render(<App />);
-
-    await user.click(screen.getByRole("button", { name: "账号" }));
-    const secret = "fake-header.fake-payload.fake-signature";
-    const payload = JSON.stringify([
-      { id: "cursor_imported", email: "imported@example.com", access_token: secret },
-      { id: "cursor_imported_two", email: "second@example.com", access_token: "two.payload.signature" },
-    ]);
-    const input = screen.getByRole("textbox", { name: "Cockpit Tools JSON 数组" });
-    await user.click(input);
-    await user.paste(payload);
-    await user.click(screen.getByRole("button", { name: "导入全部账号" }));
-
-    expect(await screen.findByText("imported@example.com")).toBeVisible();
-    expect(screen.getByText("second@example.com")).toBeVisible();
-    expect(screen.getByText("测试标签")).toBeVisible();
-    expect(mockedInvoke).toHaveBeenCalledWith("import_cockpit_accounts_json", { payload });
-    expect(input).toHaveValue("");
-    expect(document.body.textContent).not.toContain("access_token");
-    expect(document.body.textContent).not.toContain("refresh_token");
-    expect(document.body.textContent).not.toContain(secret);
-  });
-
-  it("keeps Free account period usage visible when Grok and Sand fields are absent", async () => {
-    mockedInvoke.mockImplementation(async (command) => {
-      if (command === "load_current_cursor_account") {
-        return {
-          id: "local-free",
-          email: "free@example.com",
-          membership: "free",
-          signupType: "Auth_0",
-          tags: [],
-          source: "cursor",
-          isActive: true,
-          hasAccessToken: true,
-          hasRefreshToken: false,
-        };
-      }
-      if (command === "query_cursor_usage") {
-        return {
-          autoPercentUsed: 4.5,
-          apiPercentUsed: null,
-          totalPercentUsed: 4.5,
-          billingCycleStart: "1787875200000",
-          billingCycleEnd: "1790553600000",
-          usagePercent: null,
-          hasAvailableUsage: false,
-          hasNonZeroIncludedLimit: false,
-          grokPlanLabel: null,
-          currentPeriodStart: null,
-          nextResetTimestampUtc: null,
-          sandAccessGranted: null,
-          sandAccessState: null,
-          sandBlockReason: null,
-          isPaidTrialPlan: null,
-          proAndSuperGrokPlansGrantAccess: null,
-        };
-      }
-      throw new Error(`unexpected command: ${command}`);
-    });
-
-    const user = userEvent.setup();
-    render(<App />);
-    await user.click(screen.getByRole("button", { name: "读取当前 Cursor" }));
-    await user.click(screen.getByRole("button", { name: "查询额度" }));
-
+  it("refreshes on the first click without a confirmation", async () => {
+    const user = userEvent.setup(); render(<App />);
+    const button = await screen.findByRole("button", { name: "刷新 one@example.invalid" });
+    await user.click(button);
+    expect(screen.queryByRole("dialog", { name: /刷新/ })).not.toBeInTheDocument();
+    await waitFor(() => expect(mockedInvoke).toHaveBeenCalledWith("refresh_cursor_account", { accountId: "cursor_one" }));
     expect(await screen.findByText("额度已更新")).toBeVisible();
-    expect(screen.getByText("Grok / Sand 暂无额度")).toBeVisible();
-    expect(screen.getByText("Sand 暂无数据")).toBeVisible();
-    expect(screen.getAllByText("4.5%").length).toBeGreaterThan(0);
-    expect(document.body.textContent).not.toContain("查询失败");
+  });
+
+  it("clears pasted JSON immediately after one-step multi-account import", async () => {
+    const user = userEvent.setup(); render(<App />); await screen.findByText("one@example.invalid");
+    await user.click(screen.getByRole("button", { name: "粘贴导入" }));
+    const input = screen.getByRole("textbox", { name: "Cockpit Tools JSON" });
+    const payload = '[{"email":"imported@example.invalid","access_token":"a.b.c"}]';
+    await user.click(input); await user.paste(payload); await user.click(screen.getByRole("button", { name: "导入" }));
+    expect(screen.queryByRole("textbox", { name: "Cockpit Tools JSON" })).not.toBeInTheDocument();
+    expect(await screen.findByText("imported@example.invalid")).toBeVisible();
+    expect(mockedInvoke).toHaveBeenCalledWith("import_cockpit_accounts_json", { payload });
+    expect(document.body.textContent).not.toContain("a.b.c");
+  });
+
+  it("opens a sensitive export in masked mode", async () => {
+    const user = userEvent.setup(); render(<App />); await screen.findByText("one@example.invalid");
+    await user.click(screen.getByRole("button", { name: "导出" }));
+    const dialog = await screen.findByRole("dialog", { name: "完整账号 JSON" });
+    expect(dialog).toHaveTextContent("••••••••");
+    expect(dialog).not.toHaveTextContent("fake.secret.token");
   });
 });

@@ -1,250 +1,118 @@
-import { useMemo, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { mockAccount } from "./mock";
-import type { AccountSummary, QuotaSnapshot } from "./types";
+import { useEffect, useMemo, useState } from "react";
+import { dictionaries, initialLanguage, type Language } from "./i18n";
+import { PAGE_SIZES, usePagination } from "./hooks/usePagination";
+import * as cursor from "./services/cursorService";
+import type { CursorAccountView, UsageAmount } from "./types";
 
-type View = "overview" | "accounts" | "security";
-type Busy = "account" | "import" | "select" | "usage" | "clear" | null;
-
-const isTauri = () => "__TAURI_INTERNALS__" in window;
+type Page = "cursor" | "settings";
+type Layout = "grid" | "list";
 
 export default function App() {
-  const [view, setView] = useState<View>("overview");
-  const [accounts, setAccounts] = useState<AccountSummary[]>([]);
-  const [account, setAccount] = useState<AccountSummary | null>(null);
-  const [quota, setQuota] = useState<QuotaSnapshot | null>(null);
+  const [page, setPage] = useState<Page>("cursor");
+  const [language, setLanguage] = useState<Language>(initialLanguage);
+  const t = dictionaries[language];
+  const [accounts, setAccounts] = useState<CursorAccountView[]>([]);
+  const [message, setMessage] = useState("就绪");
+  const [busy, setBusy] = useState<Set<string>>(new Set());
+  const [search, setSearch] = useState("");
+  const [membership, setMembership] = useState("all");
+  const [tag, setTag] = useState("all");
+  const [sort, setSort] = useState("last");
+  const [ascending, setAscending] = useState(false);
+  const [layout, setLayout] = useState<Layout>("grid");
+  const [privacy, setPrivacy] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [showImport, setShowImport] = useState(false);
   const [importText, setImportText] = useState("");
-  const [busy, setBusy] = useState<Busy>(null);
-  const [message, setMessage] = useState("等待你读取或导入账号");
+  const [exportState, setExportState] = useState<{ json: string; revealed: boolean } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
-  const totalPercent = clampPercent(quota?.totalPercentUsed);
-  const autoPercent = clampPercent(quota?.autoPercentUsed);
-  const apiPercent = clampPercent(quota?.apiPercentUsed);
-  const sandPercent = clampPercent(quota?.usagePercent);
-  const remainingPercent = totalPercent === null ? null : Math.max(0, 100 - totalPercent);
-  const statusTone = message.includes("失败") || message.includes("无效") ? "error" : quota ? "success" : "neutral";
+  useEffect(() => { void cursor.listAccounts().then(setAccounts).catch((error) => setMessage(`加载失败：${readable(error)}`)); }, []);
 
-  const accountDetail = useMemo(() => {
-    if (!account) return "尚未选择查询账号";
-    return [account.membership, account.signupType].filter(Boolean).join(" · ") || "套餐信息未提供";
-  }, [account]);
+  const memberships = useMemo(() => unique(accounts.map((item) => item.membershipType).filter(Boolean) as string[]), [accounts]);
+  const tags = useMemo(() => unique(accounts.flatMap((item) => item.tags)), [accounts]);
+  const filtered = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase();
+    return accounts.filter((item) => {
+      const matchesQuery = !query || [item.email, item.authId, item.name, ...item.tags].some((value) => value?.toLocaleLowerCase().includes(query));
+      return matchesQuery && (membership === "all" || item.membershipType === membership) && (tag === "all" || item.tags.includes(tag));
+    }).sort((left, right) => {
+      const result = sort === "email" ? (left.email ?? "").localeCompare(right.email ?? "") : sort === "plan" ? (left.membershipType ?? "").localeCompare(right.membershipType ?? "") : left.lastUsed - right.lastUsed;
+      return ascending ? result : -result;
+    });
+  }, [accounts, search, membership, tag, sort, ascending]);
+  const pagination = usePagination(filtered);
+  const currentPageIds = pagination.pageItems.map((item) => item.id);
+  const allPageSelected = currentPageIds.length > 0 && currentPageIds.every((id) => selected.has(id));
 
-  function applyActiveAccount(summary: AccountSummary, sourceAccounts?: AccountSummary[]) {
-    const base = sourceAccounts ?? accounts;
-    const exists = base.some((item) => item.id === summary.id);
-    const next = (exists ? base : [summary, ...base]).map((item) => ({
-      ...item,
-      ...(item.id === summary.id ? summary : {}),
-      isActive: item.id === summary.id,
-    }));
-    setAccounts(next);
-    setAccount(summary);
-    setQuota(null);
-  }
+  const replaceAccount = (updated: CursorAccountView) => setAccounts((items) => items.some((item) => item.id === updated.id) ? items.map((item) => item.id === updated.id ? updated : item) : [updated, ...items]);
+  const withBusy = async (ids: string[], action: () => Promise<void>) => { setBusy((old) => new Set([...old, ...ids])); try { await action(); } finally { setBusy((old) => { const next = new Set(old); ids.forEach((id) => next.delete(id)); return next; }); } };
 
-  async function loadAccount() {
-    setBusy("account");
-    setMessage("正在只读加载当前 Cursor 账号…");
-    try {
-      const result = isTauri() ? await invoke<AccountSummary>("load_current_cursor_account") : mockAccount;
-      applyActiveAccount(result);
-      setMessage("当前 Cursor 账号已加入并设为查询账号");
-    } catch (error) {
-      setMessage(`读取失败：${readableError(error)}`);
-    } finally {
-      setBusy(null);
-    }
-  }
+  async function readLocal() { await withBusy(["local"], async () => { try { replaceAccount(await cursor.readLocalAccount()); setMessage("已读取并保存本机 Cursor 账号"); } catch (error) { setMessage(`读取失败：${readable(error)}`); } }); }
+  async function refreshOne(id: string) { await withBusy([id], async () => { try { replaceAccount(await cursor.refreshAccount(id)); setMessage("额度已更新"); } catch (error) { setMessage(`查询失败：${readable(error)}`); } }); }
+  async function refreshMany(ids: string[]) { if (!ids.length) return; await withBusy(ids, async () => { const results = await cursor.refreshAccounts(ids); for (const item of results) if (item.result) replaceAccount(item.result); const failures = results.filter((item) => item.error).length; setMessage(failures ? `刷新完成，${failures} 个账号失败` : `已刷新 ${results.length} 个账号`); }); }
+  async function submitImport() { const payload = importText; setImportText(""); if (!payload.trim()) return; setShowImport(false); await withBusy(["import"], async () => { try { setAccounts(await cursor.importAccounts(payload)); setMessage("账号已导入并保存到本机"); } catch (error) { setMessage(`导入失败：${readable(error)}`); } }); }
+  async function openExport(ids?: string[]) { const scope = ids ?? (selected.size ? filtered.filter((item) => selected.has(item.id)).map((item) => item.id) : filtered.map((item) => item.id)); if (!scope.length) return; try { setExportState({ json: await cursor.exportAccounts(scope), revealed: false }); } catch (error) { setMessage(`导出失败：${readable(error)}`); } }
+  async function confirmDelete() { if (!deleteTarget) return; const id = deleteTarget; setDeleteTarget(null); await cursor.deleteAccount(id); setAccounts((items) => items.filter((item) => item.id !== id)); setSelected((items) => { const next = new Set(items); next.delete(id); return next; }); setMessage("本地账号及凭据备份已删除"); }
 
-  async function importCockpitAccounts() {
-    let payload = importText;
-    setImportText("");
-    if (!payload.trim()) {
-      setMessage("请先粘贴 Cockpit Tools JSON 数组");
-      return;
-    }
-    if (!isTauri()) {
-      setMessage("浏览器预览不处理账号凭据，请在桌面应用中导入");
-      payload = "";
-      return;
-    }
-    setBusy("import");
-    setMessage("正在解析 Cockpit Tools JSON…");
-    try {
-      const result = await invoke<AccountSummary[]>("import_cockpit_accounts_json", { payload });
-      setAccounts(result);
-      const active = result.find((item) => item.isActive) ?? null;
-      setAccount(active);
-      setQuota(null);
-      const importedCount = result.filter((item) => item.source === "cockpit-tools").length;
-      setMessage(`已从 Cockpit Tools 导入 ${importedCount} 个账号，仅保存在本次会话内`);
-    } catch (error) {
-      setMessage(`导入失败：${readableError(error)}`);
-    } finally {
-      payload = "";
-      setBusy(null);
-    }
-  }
-
-  async function selectAccount(accountId: string) {
-    setBusy("select");
-    try {
-      const result = isTauri()
-        ? await invoke<AccountSummary>("select_cursor_account", { accountId })
-        : accounts.find((item) => item.id === accountId);
-      if (!result) throw new Error("找不到所选账号");
-      applyActiveAccount(result);
-      setMessage(`已选择 ${result.email}，点击查询额度即可刷新`);
-    } catch (error) {
-      setMessage(`选择失败：${readableError(error)}`);
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function queryUsage() {
-    setBusy("usage");
-    setMessage("正在查询 Cursor 官方额度…");
-    try {
-      if (!isTauri()) {
-        setMessage("浏览器预览不会发送真实请求；请在桌面应用中操作");
-        return;
-      }
-      const result = await invoke<QuotaSnapshot>("query_cursor_usage");
-      setQuota(result);
-      setMessage("额度已更新");
-    } catch (error) {
-      setMessage(`查询失败：${readableError(error)}`);
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function clearCredentials() {
-    setBusy("clear");
-    try {
-      if (isTauri()) await invoke("clear_cursor_credentials");
-      setAccounts([]);
-      setAccount(null);
-      setQuota(null);
-      setImportText("");
-      setMessage("本次会话中的全部账号与凭据已清除");
-    } catch (error) {
-      setMessage(`清除失败：${readableError(error)}`);
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  return (
-    <div className="app-frame">
-      <aside className="sidebar">
-        <div className="sidebar-brand"><span className="brand-gauge" aria-hidden="true" /><div><strong>Cursor</strong><span>额度查看器</span></div></div>
-        <nav aria-label="主导航">
-          <NavButton active={view === "overview"} icon="▦" label="概览" onClick={() => setView("overview")} />
-          <NavButton active={view === "accounts"} icon="○" label="账号" onClick={() => setView("accounts")} />
-          <NavButton active={view === "security"} icon="◇" label="安全" onClick={() => setView("security")} />
-        </nav>
-        <div className="sidebar-foot"><span className={account ? "vault-dot active" : "vault-dot"} /><div><strong>{accounts.length} 个账号</strong><span>仅驻留内存</span></div></div>
-      </aside>
-
-      <main className="workspace">
-        <header className={`commandbar ${statusTone}`}>
-          <div className="command-status"><span /><p>{message}</p></div>
-          <button className="query-button" onClick={queryUsage} disabled={!account || busy !== null}>{busy === "usage" ? "查询中…" : "查询额度"}</button>
-        </header>
-
-        {view === "overview" && <Overview account={account} accountDetail={accountDetail} quota={quota} autoPercent={autoPercent} apiPercent={apiPercent} sandPercent={sandPercent} totalPercent={totalPercent} remainingPercent={remainingPercent} busy={busy} onLoad={loadAccount} onOpenAccounts={() => setView("accounts")} />}
-        {view === "accounts" && <AccountsView accounts={accounts} importText={importText} busy={busy} onImportTextChange={setImportText} onLoad={loadAccount} onImport={importCockpitAccounts} onSelect={selectAccount} onClear={clearCredentials} />}
-        {view === "security" && <SecurityView accountCount={accounts.length} busy={busy} onClear={clearCredentials} />}
-      </main>
-    </div>
-  );
+  return <div className="app-shell">
+    <aside className="side-nav">
+      <div className="brand"><span className="brand-mark">⌁</span><div><strong>Cursor</strong><small>Usage Viewer</small></div></div>
+      <button className={page === "cursor" ? "nav active" : "nav"} onClick={() => setPage("cursor")}><span>◎</span>{t.cursor}<b>{accounts.length}</b></button>
+      <div className="nav-spacer" />
+      <button className={page === "settings" ? "nav active" : "nav"} onClick={() => setPage("settings")}><span>⚙</span>{t.settings}</button>
+      <div className="version">v0.1.0 · MIT<br/><span>UNOFFICIAL</span></div>
+    </aside>
+    <main className="main-area">
+      {page === "settings" ? <Settings language={language} setLanguage={setLanguage} /> : <>
+        <header className="page-head"><div><p>LOCAL ACCOUNT WORKSPACE</p><h1>Cursor <span>{accounts.length} {t.accounts}</span></h1></div><div className="status"><i className={message.includes("失败") ? "error" : ""}/>{message}</div></header>
+        <details className="local-notice"><summary>本地处理与隐私说明</summary><p>{t.localNotice}</p></details>
+        <section className="toolbar">
+          <label className="search"><span>⌕</span><input aria-label={t.search} placeholder={t.search} value={search} onChange={(event) => setSearch(event.target.value)} /></label>
+          <select aria-label="套餐筛选" value={membership} onChange={(event) => setMembership(event.target.value)}><option value="all">全部套餐</option>{memberships.map((value) => <option key={value}>{value}</option>)}</select>
+          <select aria-label="标签筛选" value={tag} onChange={(event) => setTag(event.target.value)}><option value="all">全部标签</option>{tags.map((value) => <option key={value}>{value}</option>)}</select>
+          <select aria-label="排序" value={sort} onChange={(event) => setSort(event.target.value)}><option value="last">最近使用</option><option value="email">邮箱</option><option value="plan">套餐</option></select>
+          <button className="icon-button" aria-label="切换排序方向" onClick={() => setAscending((value) => !value)}>{ascending ? "↑" : "↓"}</button>
+          <button className="icon-button" aria-label="切换布局" onClick={() => setLayout((value) => value === "grid" ? "list" : "grid")}>{layout === "grid" ? "▦" : "☷"}</button>
+          <button className={privacy ? "icon-button active" : "icon-button"} aria-label="隐私模式" onClick={() => setPrivacy((value) => !value)}>◉</button>
+          <button onClick={() => void readLocal()} disabled={busy.has("local")}>{t.readLocal}</button>
+          <button onClick={() => setShowImport(true)}>{t.import}</button>
+          <button className="primary" onClick={() => void refreshMany(accounts.map((item) => item.id))} disabled={!accounts.length || busy.size > 0}>{t.refreshAll}</button>
+        </section>
+        {selected.size > 0 && <section className="selection-bar"><strong>已选 {selected.size} 个账号</strong><button onClick={() => void refreshMany([...selected])}>刷新选中</button><button onClick={() => void openExport()}>{t.export}</button><button onClick={() => setSelected(new Set())}>取消选择</button></section>}
+        <section className="list-head"><label><input type="checkbox" aria-label="全选当前页" checked={allPageSelected} onChange={() => setSelected((old) => { const next = new Set(old); currentPageIds.forEach((id) => allPageSelected ? next.delete(id) : next.add(id)); return next; })} /> 当前页全选</label><span>{filtered.length} 个结果</span></section>
+        {pagination.pageItems.length === 0 ? <div className="empty"><span>◎</span><h2>{t.empty}</h2><p>读取本机账号，或粘贴 Cockpit JSON 批量导入。</p></div> : <div className={`account-${layout}`}>{pagination.pageItems.map((account) => <AccountCard key={account.id} account={account} privacy={privacy} selected={selected.has(account.id)} busy={busy.has(account.id)} onSelect={() => setSelected((old) => { const next = new Set(old); next.has(account.id) ? next.delete(account.id) : next.add(account.id); return next; })} onRefresh={() => void refreshOne(account.id)} onExport={() => void openExport([account.id])} onDelete={() => setDeleteTarget(account.id)} />)}</div>}
+        <footer className="pagination"><span>第 {pagination.page} / {pagination.pageCount} 页</span><label>每页 <select aria-label="每页数量" value={pagination.pageSize} onChange={(event) => pagination.setPageSize(Number(event.target.value))}>{PAGE_SIZES.map((size) => <option key={size}>{size}</option>)}</select></label><button disabled={pagination.page === 1} onClick={() => pagination.setPage(pagination.page - 1)}>上一页</button><button disabled={pagination.page === pagination.pageCount} onClick={() => pagination.setPage(pagination.page + 1)}>下一页</button></footer>
+      </>}
+    </main>
+    {showImport && <Modal title="粘贴 Cockpit JSON" onClose={() => { setShowImport(false); setImportText(""); }}><p className="warning">支持单对象、数组、accounts/items 包装；提交后立即清空。Token 将明文保存在本机。</p><textarea autoFocus aria-label="Cockpit Tools JSON" value={importText} onChange={(event) => setImportText(event.target.value)} /><div className="modal-actions"><button onClick={() => { setShowImport(false); setImportText(""); }}>取消</button><button className="primary" disabled={!importText.trim()} onClick={() => void submitImport()}>导入</button></div></Modal>}
+    {exportState && <Modal title="完整账号 JSON" onClose={() => setExportState(null)}><p className="warning">包含明文 Access / Refresh Token。预览默认遮罩，请谨慎复制或保存。</p><pre className="export-preview">{exportState.revealed ? exportState.json : maskJson(exportState.json)}</pre><div className="modal-actions"><button onClick={() => setExportState({ ...exportState, revealed: !exportState.revealed })}>{exportState.revealed ? "隐藏" : "显示"}</button><button onClick={() => void navigator.clipboard.writeText(exportState.json)}>复制完整 JSON</button><button className="primary" onClick={() => downloadJson(exportState.json)}>保存 JSON</button></div></Modal>}
+    {deleteTarget && <Modal title="删除本地账号？" onClose={() => setDeleteTarget(null)}><p>账号明细、凭据和对应 .bak 将从本机删除，无法撤销。</p><div className="modal-actions"><button onClick={() => setDeleteTarget(null)}>取消</button><button className="danger" onClick={() => void confirmDelete()}>删除</button></div></Modal>}
+  </div>;
 }
 
-function NavButton({ active, icon, label, onClick }: { active: boolean; icon: string; label: string; onClick: () => void }) {
-  return <button className={active ? "nav-button active" : "nav-button"} aria-pressed={active} onClick={onClick}><span aria-hidden="true">{icon}</span>{label}</button>;
+function AccountCard({ account, privacy, selected, busy, onSelect, onRefresh, onExport, onDelete }: { account: CursorAccountView; privacy: boolean; selected: boolean; busy: boolean; onSelect: () => void; onRefresh: () => void; onExport: () => void; onDelete: () => void }) {
+  const usage = account.coreUsage; const sand = account.sand;
+  return <article className={`account-card ${selected ? "selected" : ""}`}>
+    <header><input type="checkbox" aria-label={`选择 ${account.email ?? account.id}`} checked={selected} onChange={onSelect}/><div className="avatar">{(account.email ?? "?")[0].toUpperCase()}</div><div className="identity"><strong className={privacy ? "private" : ""}>{account.email ?? "邮箱未知"}</strong><small className={privacy ? "private" : ""}>{account.authId ?? "Auth ID 未知"}</small></div><span className="plan">{account.membershipType ?? "UNKNOWN"}</span></header>
+    <div className="tags">{account.isCurrent && <span className="current">本机当前</span>}{account.tags.slice(0,2).map((tag) => <span key={tag}>{tag}</span>)}{account.tags.length > 2 && <span>+{account.tags.length - 2}</span>}</div>
+    <div className="quota-grid"><Quota label="TOTAL" value={usage?.total}/><Quota label="AUTO + COMPOSER" value={usage?.autoComposer}/><Quota label="API" value={usage?.api}/><Quota label="ON-DEMAND" value={usage?.onDemand}/></div>
+    <div className="sand-row"><span><b>GROK / SAND</b> {percent(sand?.usagePercent)}</span><span>{sand?.accessGranted === true ? "可访问" : sand?.accessGranted === false ? "不可访问" : "状态未知"}</span><span>重置 {date(sand?.nextResetTimestampUtc)}</span></div>
+    {(account.lastError || usage?.error) && <p className="account-error">{account.lastError ?? usage?.error}</p>}
+    <footer><span>{usage ? `${usage.source === "live" ? "实时查询" : "导入缓存"} · ${dateTime(usage.updatedAt)}` : "暂无额度数据"}</span><div><button aria-label={`刷新 ${account.email ?? account.id}`} onClick={onRefresh} disabled={busy}>{busy ? "查询中" : "刷新"}</button><button onClick={onExport}>导出</button><button className="danger-link" onClick={onDelete}>删除</button></div></footer>
+  </article>;
 }
 
-type OverviewProps = {
-  account: AccountSummary | null;
-  accountDetail: string;
-  quota: QuotaSnapshot | null;
-  autoPercent: number | null;
-  apiPercent: number | null;
-  sandPercent: number | null;
-  totalPercent: number | null;
-  remainingPercent: number | null;
-  busy: Busy;
-  onLoad: () => void;
-  onOpenAccounts: () => void;
-};
+function Quota({ label, value }: { label: string; value?: UsageAmount }) { const p = clamp(value?.percentUsed ?? (value?.used != null && value.limit ? value.used / value.limit * 100 : null)); return <div className="quota"><span>{label}</span><strong>{percent(p)}</strong><div><i style={{ width: `${p ?? 0}%` }}/></div><small>{value?.used == null ? "暂无数据" : `${number(value.used)} / ${value.limit == null ? "—" : number(value.limit)}`}</small></div>; }
+function Settings({ language, setLanguage }: { language: Language; setLanguage: (value: Language) => void }) { const t = dictionaries[language]; return <section className="settings-page"><header className="page-head"><div><p>APPLICATION</p><h1>{t.settings}</h1></div></header><div className="settings-tabs"><button className="active">{t.general}</button><button>{t.about}</button></div><div className="settings-card"><label><span><strong>{t.language}</strong><small>界面语言立即生效</small></span><select value={language} onChange={(event) => { const value = event.target.value as Language; localStorage.setItem("cursor-language", value); setLanguage(value); }}><option value="zh-CN">简体中文</option><option value="en">English</option></select></label><label><span><strong>关闭行为</strong><small>默认每次询问最小化到托盘或退出</small></span><select><option>每次询问</option><option>最小化到托盘</option><option>退出</option></select></label><label><span><strong>自动检查更新</strong><small>每小时检查一次；不会刷新 Cursor 额度</small></span><input type="checkbox" defaultChecked /></label></div><div className="about-card"><strong>Cursor Usage Viewer</strong><span>v0.1.0 · MIT</span><p>{t.unofficial}</p><button>检查更新</button></div></section>; }
+function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) { useEffect(() => { const key = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); }; window.addEventListener("keydown", key); return () => window.removeEventListener("keydown", key); }, [onClose]); return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="modal" role="dialog" aria-modal="true" aria-label={title}><header><h2>{title}</h2><button aria-label="关闭" onClick={onClose}>×</button></header>{children}</section></div>; }
 
-function Overview({ account, accountDetail, quota, autoPercent, apiPercent, sandPercent, totalPercent, remainingPercent, busy, onLoad, onOpenAccounts }: OverviewProps) {
-  return (
-    <section className="view overview-view">
-      <div className="active-account-card">
-        <div className="avatar">{account?.email.charAt(0).toUpperCase() ?? "?"}</div>
-        <div className="active-account-copy"><span>当前查询账号</span><strong>{account?.email ?? "尚未选择账号"}</strong><p>{accountDetail}{account?.source === "cockpit-tools" ? " · Cockpit Tools" : ""}</p></div>
-        {account ? <button className="subtle-button" onClick={onOpenAccounts}>切换账号</button> : <button className="subtle-button" onClick={onLoad} disabled={busy !== null}>{busy === "account" ? "读取中…" : "读取当前 Cursor"}</button>}
-      </div>
-
-      <div className="meter-grid">
-        <UsageMeter label="AUTO" value={autoPercent} tone="cyan" />
-        <UsageMeter label="API" value={apiPercent} tone="violet" />
-        <UsageMeter label="GROK / SAND" value={sandPercent} tone="green" />
-      </div>
-
-      <div className="summary-panel">
-        <div className="total-block"><UsageRing value={totalPercent} /><div><span>总用量</span><strong>{formatPercent(totalPercent)}</strong><p>{remainingPercent === null ? "暂无可用量数据" : `${remainingPercent.toFixed(1)}% 可用`}</p></div></div>
-        <div className="period-block"><span>计费周期</span><strong>{quota ? `${formatDate(quota.billingCycleStart)} — ${formatDate(quota.billingCycleEnd)}` : "等待查询"}</strong><div className="period-line"><i /><b /></div><p>{quota ? `Sand 重置 ${formatTimestamp(quota.nextResetTimestampUtc)}` : "查询后显示周期与重置时间"}</p></div>
-        <div className="status-stack"><div className="status-chip violet"><span>♙</span>{quota?.grokPlanLabel || (quota ? "Grok / Sand 暂无额度" : "套餐待查询")}</div><div className={quota?.sandAccessGranted === true ? "status-chip green" : "status-chip"}><span>◇</span>{quota?.sandAccessGranted === true ? "Sand 已授权" : quota?.sandAccessGranted === false ? "Sand 不可用" : quota ? "Sand 暂无数据" : "Sand 待查询"}</div><p>↻ {quota ? formatTimestamp(quota.nextResetTimestampUtc) : "—"}</p></div>
-      </div>
-    </section>
-  );
-}
-
-function UsageMeter({ label, value, tone }: { label: string; value: number | null; tone: string }) {
-  const percent = value ?? 0;
-  const height = percent * 2.08;
-  const y = 222 - height;
-  return (
-    <article className={`meter-card ${tone}`}>
-      <h2>{label} <strong>{formatPercent(value)}</strong></h2>
-      <div className="meter-body"><div className="meter-scale"><span>100%</span><span>75%</span><span>50%</span><span>25%</span><span>0%</span></div><svg className="vertical-meter" viewBox="0 0 100 240" role="img" aria-label={`${label} 用量 ${formatPercent(value)}`}><rect className="meter-track" x="20" y="8" width="60" height="216" rx="5" /><rect className="meter-value" x="20" y={y} width="60" height={height} rx="4" /></svg></div>
-      <div className="meter-footer"><span>已用 {formatPercent(value)}</span><strong>剩余 {value === null ? "—" : `${(100 - value).toFixed(1)}%`}</strong></div>
-    </article>
-  );
-}
-
-function UsageRing({ value }: { value: number | null }) {
-  const percent = value ?? 0;
-  return <div className="total-ring"><svg viewBox="0 0 100 100" aria-hidden="true"><circle className="total-track" cx="50" cy="50" r="42" pathLength="100" /><circle className="total-value" cx="50" cy="50" r="42" pathLength="100" strokeDasharray={`${percent} ${100 - percent}`} /></svg><strong>{formatPercent(value)}</strong></div>;
-}
-
-function AccountsView({ accounts, importText, busy, onImportTextChange, onLoad, onImport, onSelect, onClear }: { accounts: AccountSummary[]; importText: string; busy: Busy; onImportTextChange: (value: string) => void; onLoad: () => void; onImport: () => void; onSelect: (id: string) => void; onClear: () => void }) {
-  return (
-    <section className="view accounts-view">
-      <div className="view-heading"><div><span>ACCOUNT MANAGEMENT</span><h1>账号管理</h1><p>粘贴 Cockpit Tools JSON 数组，可一次导入多个账号。</p></div><div className="heading-actions"><button className="subtle-button" onClick={onLoad} disabled={busy !== null}>{busy === "account" ? "读取中…" : "读取当前 Cursor"}</button></div></div>
-      <div className="import-panel">
-        <div className="import-panel-heading"><div><strong>粘贴 JSON 数组</strong><p>提交后立即清空输入框；额度缓存会被忽略。</p></div><span>最多 500 个账号 · 8 MiB</span></div>
-        <textarea aria-label="Cockpit Tools JSON 数组" autoComplete="off" spellCheck={false} value={importText} onChange={(event) => onImportTextChange(event.target.value)} placeholder={'粘贴 Cockpit Tools 导出的 JSON 数组，例如：\n[{ "id": "...", "email": "...", "access_token": "..." }]'} disabled={busy !== null} />
-        <div className="import-panel-actions"><p>仅保留本次会话查询所需的 Access Token，不读取文件。</p><button className="query-button" onClick={onImport} disabled={!importText.trim() || busy !== null}>{busy === "import" ? "导入中…" : "导入全部账号"}</button></div>
-      </div>
-      {accounts.length === 0 ? <div className="empty-state"><span>◎</span><h2>还没有账号</h2><p>读取当前 Cursor，或在上方粘贴 JSON 数组后导入。</p></div> : <div className="account-list">{accounts.map((item) => <article className={item.isActive ? "account-row active" : "account-row"} key={item.id}><div className="avatar small">{item.email.charAt(0).toUpperCase()}</div><div className="row-main"><strong>{item.email}</strong><p>{[item.membership, item.signupType].filter(Boolean).join(" · ") || "套餐未知"}</p><div className="tag-row"><span className="source-tag">{item.source === "cursor" ? "本机 Cursor" : "Cockpit Tools"}</span>{item.tags.map((tag) => <span key={tag}>{tag}</span>)}</div></div><div className="row-security"><span className={item.hasAccessToken ? "ok" : ""}>Access</span><span className={item.hasRefreshToken ? "ok" : ""}>Refresh</span></div><button className={item.isActive ? "selected-button" : "subtle-button"} disabled={item.isActive || busy !== null} onClick={() => onSelect(item.id)}>{item.isActive ? "当前使用" : "设为当前"}</button></article>)}</div>}
-      {accounts.length > 0 && <div className="account-footer"><p>重新导入会替换上一次 Cockpit Tools 集合，不修改 Cockpit Tools 数据。</p><button className="danger-button" onClick={onClear} disabled={busy !== null}>{busy === "clear" ? "清除中…" : "清除全部内存账号"}</button></div>}
-    </section>
-  );
-}
-
-function SecurityView({ accountCount, busy, onClear }: { accountCount: number; busy: Busy; onClear: () => void }) {
-  const items = [["敏感数据隔离", "除你主动粘贴的 JSON 外，完整 Token 和 Cookie 不进入前端；提交后输入框立即清空。"], ["固定网络白名单", "只允许三个已记录的 Cursor HTTPS 端点，禁止重定向。"], ["无持久化账号库", "导入账号仅保留到清除、关闭窗口或退出进程。"], ["不信任缓存额度", "忽略 Cockpit Tools 的 cursor_usage_raw，每次主动查询实时数据。"]];
-  return <section className="view security-view"><div className="view-heading"><div><span>SECURITY BOUNDARY</span><h1>安全与隐私</h1><p>当前内存中有 {accountCount} 个账号摘要。</p></div></div><div className="security-grid">{items.map(([title, text], index) => <article key={title}><span>{index + 1}</span><div><h2>{title}</h2><p>{text}</p></div></article>)}</div><div className="clear-zone"><div><strong>清除本次会话</strong><p>立即移除全部账号、选中状态和查询结果，并尽力清零 Rust 字符串。</p></div><button className="danger-button" onClick={onClear} disabled={accountCount === 0 || busy !== null}>{busy === "clear" ? "清除中…" : "清除全部"}</button></div></section>;
-}
-
-function readableError(error: unknown): string { return error instanceof Error ? error.message : String(error); }
-function clampPercent(value: number | null | undefined): number | null { return typeof value === "number" && Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : null; }
-function formatPercent(value: number | null): string { return value === null ? "—" : `${value.toFixed(1)}%`; }
-function parseTimestamp(value: string): Date { return new Date(/^\d+$/.test(value) ? Number(value) : value); }
-function formatDate(value: string): string { const date = parseTimestamp(value); return Number.isNaN(date.getTime()) ? "未知" : date.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" }); }
-function formatTimestamp(value: string | null | undefined): string { if (!value) return "暂无数据"; const date = parseTimestamp(value); return Number.isNaN(date.getTime()) ? "未知" : date.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }); }
+function unique(values: string[]) { return [...new Set(values)].sort(); }
+function readable(error: unknown) { return error instanceof Error ? error.message : String(error); }
+function clamp(value: number | null | undefined) { return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : null; }
+function percent(value: number | null | undefined) { const result = clamp(value); return result == null ? "暂无数据" : `${result.toFixed(1)}%`; }
+function number(value: number) { return Number.isInteger(value) ? String(value) : value.toFixed(1); }
+function date(value: string | null | undefined) { if (!value) return "未知"; const result = new Date(/^\d+$/.test(value) ? Number(value) : value); return Number.isNaN(result.getTime()) ? "未知" : result.toLocaleDateString(); }
+function dateTime(value: number) { return new Date(value < 10_000_000_000 ? value * 1000 : value).toLocaleString(); }
+function maskJson(json: string) { try { const visit = (value: unknown): unknown => Array.isArray(value) ? value.map(visit) : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).map(([key, item]) => [key, visit(item)])) : typeof value === "string" ? "••••••••" : value; return JSON.stringify(visit(JSON.parse(json)), null, 2); } catch { return "••••••••"; } }
+function downloadJson(json: string) { const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([json], { type: "application/json" })); link.download = "cursor-accounts.json"; link.click(); URL.revokeObjectURL(link.href); }

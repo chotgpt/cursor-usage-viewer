@@ -17,12 +17,35 @@ const MEMBERSHIP_KEY: &str = "cursorAuth/stripeMembershipType";
 const SIGNUP_TYPE_KEY: &str = "cursorAuth/cachedSignUpType";
 
 pub fn default_cursor_database_path() -> AppResult<PathBuf> {
-    let appdata = env::var_os("APPDATA").ok_or(AppError::AppDataUnavailable)?;
-    Ok(PathBuf::from(appdata)
-        .join("Cursor")
-        .join("User")
-        .join("globalStorage")
-        .join("state.vscdb"))
+    #[cfg(target_os = "windows")]
+    let base =
+        PathBuf::from(env::var_os("APPDATA").ok_or(AppError::AppDataUnavailable)?).join("Cursor");
+    #[cfg(target_os = "macos")]
+    let base = PathBuf::from(env::var_os("HOME").ok_or(AppError::AppDataUnavailable)?)
+        .join("Library/Application Support/Cursor");
+    #[cfg(target_os = "linux")]
+    let base = PathBuf::from(env::var_os("HOME").ok_or(AppError::AppDataUnavailable)?)
+        .join(".config/Cursor");
+    Ok(base.join("User").join("globalStorage").join("state.vscdb"))
+}
+
+#[cfg(test)]
+fn cursor_database_path_for(
+    platform: &str,
+    appdata: Option<&Path>,
+    home: Option<&Path>,
+) -> AppResult<PathBuf> {
+    let base = match platform {
+        "windows" => appdata.ok_or(AppError::AppDataUnavailable)?.join("Cursor"),
+        "macos" => home
+            .ok_or(AppError::AppDataUnavailable)?
+            .join("Library/Application Support/Cursor"),
+        "linux" => home
+            .ok_or(AppError::AppDataUnavailable)?
+            .join(".config/Cursor"),
+        _ => return Err(AppError::AppDataUnavailable),
+    };
+    Ok(base.join("User").join("globalStorage").join("state.vscdb"))
 }
 
 pub fn read_default_cursor_account() -> AppResult<RawCursorAccount> {
@@ -121,5 +144,23 @@ mod tests {
             Err(AppError::DatabaseMissing(_))
         ));
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn resolves_cursor_database_paths_for_all_desktop_platforms() {
+        let appdata = Path::new("C:/Fixture/Roaming");
+        let home = Path::new("/fixture/home");
+        assert_eq!(
+            cursor_database_path_for("windows", Some(appdata), None).unwrap(),
+            appdata.join("Cursor/User/globalStorage/state.vscdb")
+        );
+        assert_eq!(
+            cursor_database_path_for("macos", None, Some(home)).unwrap(),
+            home.join("Library/Application Support/Cursor/User/globalStorage/state.vscdb")
+        );
+        assert_eq!(
+            cursor_database_path_for("linux", None, Some(home)).unwrap(),
+            home.join(".config/Cursor/User/globalStorage/state.vscdb")
+        );
     }
 }
