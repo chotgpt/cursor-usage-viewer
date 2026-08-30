@@ -1,0 +1,3 @@
+import { describe, expect, it, vi } from "vitest";
+import { withUpdaterRetry } from "./updaterRetry";
+describe("updater retry",()=>{it("retries transient errors with the fixed schedule",async()=>{const operation=vi.fn().mockRejectedValueOnce(new Error("timeout")).mockRejectedValueOnce(new Error("network")).mockResolvedValue("ok");const waits:number[]=[];await expect(withUpdaterRetry(operation,[800,2000,5000],async(ms)=>{waits.push(ms);})).resolves.toBe("ok");expect(waits).toEqual([800,2000]);});it("fails closed on signature errors",async()=>{const operation=vi.fn().mockRejectedValue(new Error("signature verification failed"));await expect(withUpdaterRetry(operation,[1,2],async()=>{})).rejects.toThrow("signature");expect(operation).toHaveBeenCalledTimes(1);});});
