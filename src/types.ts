@@ -1,30 +1,5 @@
-export type AccountSummary = {
-  id: string;
-  email: string;
-  membership: string | null;
-  signupType: string | null;
-  tags: string[];
-  source: "cursor" | "cockpit-tools";
-  isActive: boolean;
-  hasAccessToken: boolean;
-  hasRefreshToken: boolean;
-};
-
-export type QuotaSnapshot = {
-  autoPercentUsed: number | null;
-  apiPercentUsed: number | null;
-  totalPercentUsed: number | null;
-  billingCycleStart: string;
-  billingCycleEnd: string;
-  usagePercent: number | null;
-  hasAvailableUsage: boolean | null;
-  hasNonZeroIncludedLimit: boolean | null;
-  grokPlanLabel: string | null;
-  currentPeriodStart: string | null;
-  nextResetTimestampUtc: string | null;
-  sandAccessGranted: boolean | null;
-  sandAccessState: string | null;
-  sandBlockReason: string | null;
-  isPaidTrialPlan: boolean | null;
-  proAndSuperGrokPlansGrantAccess: boolean | null;
-};
+export type UsageAmount = { enabled: boolean | null; used: number | null; limit: number | null; remaining: number | null; percentUsed: number | null };
+export type CoreUsageSnapshot = { total: UsageAmount; autoComposer: UsageAmount; api: UsageAmount; onDemand: UsageAmount; billingCycleStart: string | null; billingCycleEnd: string | null; source: "imported_cache" | "live"; updatedAt: number; error: string | null };
+export type SandSnapshot = { usagePercent: number | null; hasAvailableUsage: boolean | null; hasNonZeroIncludedLimit: boolean | null; grokPlanLabel: string | null; currentPeriodStart: string | null; nextResetTimestampUtc: string | null; accessGranted: boolean | null; accessState: string | null; blockReason: string | null; isPaidTrialPlan: boolean | null; proAndSuperGrokPlansGrantAccess: boolean | null; usageUpdatedAt: number | null; accessUpdatedAt: number | null; usageError: string | null; accessError: string | null };
+export type CursorAccountView = { id: string; email: string | null; authId: string | null; name: string | null; tags: string[]; membershipType: string | null; subscriptionStatus: string | null; signUpType: string | null; status: string | null; statusReason: string | null; source: string; hasAccessToken: boolean; hasRefreshToken: boolean; isCurrent: boolean; coreUsage: CoreUsageSnapshot | null; sand: SandSnapshot | null; lastError: string | null; lastErrorAt: number | null; createdAt: number; lastUsed: number };
+export type BatchAccountResult = { accountId: string; result: CursorAccountView | null; error: string | null };

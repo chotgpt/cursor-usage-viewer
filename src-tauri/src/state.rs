@@ -1,181 +1,152 @@
-use std::sync::Mutex;
+use std::{path::PathBuf, sync::Mutex};
 
 use zeroize::Zeroizing;
 
 use crate::{
     error::{AppError, AppResult},
-    model::{AccountSummary, ManagedAccount},
+    model::{CursorAccountRecord, CursorAccountView},
     provider::CursorUsageProvider,
+    storage::AccountStore,
 };
 
 pub struct AppState {
-    accounts: Mutex<ManagedAccounts>,
+    store: Mutex<AccountStore>,
+    current_id: Mutex<Option<String>>,
     pub provider: CursorUsageProvider,
 }
 
-#[derive(Default)]
-struct ManagedAccounts {
-    items: Vec<ManagedAccount>,
-    active_id: Option<String>,
-}
-
 impl AppState {
-    pub fn new() -> AppResult<Self> {
+    pub fn new(data_dir: PathBuf) -> AppResult<Self> {
         Ok(Self {
-            accounts: Mutex::new(ManagedAccounts::default()),
+            store: Mutex::new(AccountStore::new(data_dir)),
+            current_id: Mutex::new(None),
             provider: CursorUsageProvider::new()?,
         })
     }
 
-    pub fn upsert_local_account(&self, account: ManagedAccount) -> AppResult<AccountSummary> {
-        let mut accounts = self
-            .accounts
+    pub fn list(&self) -> AppResult<Vec<CursorAccountView>> {
+        let current = self
+            .current_id
             .lock()
-            .map_err(|_| AppError::StateUnavailable)?;
-        accounts.items.retain(|item| item.id != account.id);
-        accounts.active_id = Some(account.id.clone());
-        accounts.items.insert(0, account);
-        Ok(accounts.items[0].to_summary(true))
+            .map_err(|_| AppError::StateUnavailable)?
+            .clone();
+        self.store
+            .lock()
+            .map_err(|_| AppError::StateUnavailable)?
+            .list_views(current.as_deref())
     }
 
-    pub fn replace_cockpit_accounts(
+    pub fn upsert(
         &self,
-        imported: Vec<ManagedAccount>,
-    ) -> AppResult<Vec<AccountSummary>> {
-        let mut accounts = self
-            .accounts
+        account: CursorAccountRecord,
+        mark_current: bool,
+    ) -> AppResult<CursorAccountView> {
+        let id = account.id.clone();
+        self.store
             .lock()
-            .map_err(|_| AppError::StateUnavailable)?;
-        let previous_active = accounts.active_id.clone();
-        accounts
-            .items
-            .retain(|account| account.source != "cockpit-tools");
-        accounts.items.extend(imported);
-
-        let active_still_exists = previous_active
-            .as_deref()
-            .is_some_and(|id| accounts.items.iter().any(|account| account.id == id));
-        accounts.active_id = if active_still_exists {
-            previous_active
-        } else {
-            accounts.items.first().map(|account| account.id.clone())
-        };
-        Ok(summaries(&accounts))
+            .map_err(|_| AppError::StateUnavailable)?
+            .upsert(account)?;
+        if mark_current {
+            *self
+                .current_id
+                .lock()
+                .map_err(|_| AppError::StateUnavailable)? = Some(id.clone());
+        }
+        let current = self
+            .current_id
+            .lock()
+            .map_err(|_| AppError::StateUnavailable)?
+            .clone();
+        Ok(self
+            .store
+            .lock()
+            .map_err(|_| AppError::StateUnavailable)?
+            .get(&id)?
+            .view(current.as_deref()))
     }
 
-    pub fn select_account(&self, account_id: &str) -> AppResult<AccountSummary> {
-        let mut accounts = self
-            .accounts
+    pub fn import(&self, records: Vec<CursorAccountRecord>) -> AppResult<Vec<CursorAccountView>> {
+        for record in records {
+            self.upsert(record, false)?;
+        }
+        self.list()
+    }
+
+    pub fn select(&self, account_id: &str) -> AppResult<CursorAccountView> {
+        let store = self.store.lock().map_err(|_| AppError::StateUnavailable)?;
+        let account = store
+            .get(account_id)
+            .map_err(|_| AppError::AccountNotFound)?;
+        *self
+            .current_id
             .lock()
-            .map_err(|_| AppError::StateUnavailable)?;
-        let index = accounts
-            .items
-            .iter()
-            .position(|account| account.id == account_id)
+            .map_err(|_| AppError::StateUnavailable)? = Some(account_id.to_owned());
+        Ok(account.view(Some(account_id)))
+    }
+
+    pub fn record(&self, account_id: &str) -> AppResult<CursorAccountRecord> {
+        self.store
+            .lock()
+            .map_err(|_| AppError::StateUnavailable)?
+            .get(account_id)
+    }
+
+    pub fn active_record(&self) -> AppResult<CursorAccountRecord> {
+        let id = self
+            .current_id
+            .lock()
+            .map_err(|_| AppError::StateUnavailable)?
+            .clone()
             .ok_or(AppError::AccountNotFound)?;
-        accounts.active_id = Some(account_id.to_owned());
-        Ok(accounts.items[index].to_summary(true))
+        self.record(&id)
     }
 
-    pub fn access_token_copy(&self) -> AppResult<Zeroizing<String>> {
-        let accounts = self
-            .accounts
+    pub fn delete(&self, account_id: &str) -> AppResult<()> {
+        self.store
+            .lock()
+            .map_err(|_| AppError::StateUnavailable)?
+            .delete(account_id)?;
+        let mut current = self
+            .current_id
             .lock()
             .map_err(|_| AppError::StateUnavailable)?;
-        let token = accounts
-            .active_id
-            .as_deref()
-            .and_then(|id| accounts.items.iter().find(|account| account.id == id))
-            .map(|account| account.access_token.clone())
-            .filter(|value| !value.is_empty())
-            .ok_or(AppError::AccessTokenMissing)?;
-        Ok(Zeroizing::new(token))
-    }
-
-    pub fn clear(&self) -> AppResult<()> {
-        let mut accounts = self
-            .accounts
-            .lock()
-            .map_err(|_| AppError::StateUnavailable)?;
-        accounts.active_id = None;
-        accounts.items.clear();
+        if current.as_deref() == Some(account_id) {
+            *current = None;
+        }
         Ok(())
     }
 
-    #[cfg(test)]
-    pub fn has_credentials(&self) -> bool {
-        !self.accounts.lock().unwrap().items.is_empty()
+    pub fn export_json(&self, account_ids: &[String]) -> AppResult<Zeroizing<String>> {
+        self.store
+            .lock()
+            .map_err(|_| AppError::StateUnavailable)?
+            .export_json(account_ids)
+            .map(Zeroizing::new)
     }
-}
 
-fn summaries(accounts: &ManagedAccounts) -> Vec<AccountSummary> {
-    accounts
-        .items
-        .iter()
-        .map(|account| {
-            account.to_summary(accounts.active_id.as_deref() == Some(account.id.as_str()))
-        })
-        .collect()
+    pub fn persist(&self, account: CursorAccountRecord) -> AppResult<CursorAccountView> {
+        self.upsert(account, false)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
 
     #[test]
-    fn clear_removes_credentials_from_state() {
-        let state = AppState::new().unwrap();
+    fn restart_restores_accounts_but_not_runtime_current_marker() {
+        let directory = tempdir().unwrap();
+        let state = AppState::new(directory.path().to_path_buf()).unwrap();
         state
-            .upsert_local_account(ManagedAccount {
-                id: "local-cursor".to_owned(),
-                email: "person@example.com".to_owned(),
-                membership: Some("pro".to_owned()),
-                signup_type: None,
-                tags: Vec::new(),
-                source: "cursor".to_owned(),
-                access_token: "temporary-secret".to_owned(),
-                has_refresh_token: false,
-            })
+            .upsert(
+                CursorAccountRecord::fake_for_test("one", "one@example.invalid", "a.b.c"),
+                true,
+            )
             .unwrap();
-        assert!(state.has_credentials());
-        state.clear().unwrap();
-        assert!(!state.has_credentials());
-        assert!(matches!(
-            state.access_token_copy(),
-            Err(AppError::AccessTokenMissing)
-        ));
-    }
-
-    #[test]
-    fn replacing_cockpit_accounts_preserves_local_and_never_exposes_tokens() {
-        let state = AppState::new().unwrap();
-        state
-            .upsert_local_account(ManagedAccount {
-                id: "local-cursor".to_owned(),
-                email: "local@example.com".to_owned(),
-                membership: None,
-                signup_type: None,
-                tags: Vec::new(),
-                source: "cursor".to_owned(),
-                access_token: "local-secret".to_owned(),
-                has_refresh_token: false,
-            })
-            .unwrap();
-        let summaries = state
-            .replace_cockpit_accounts(vec![ManagedAccount {
-                id: "imported".to_owned(),
-                email: "imported@example.com".to_owned(),
-                membership: Some("pro".to_owned()),
-                signup_type: Some("Auth_0".to_owned()),
-                tags: vec!["标签".to_owned()],
-                source: "cockpit-tools".to_owned(),
-                access_token: "imported-secret".to_owned(),
-                has_refresh_token: true,
-            }])
-            .unwrap();
-        assert_eq!(summaries.len(), 2);
-        let serialized = serde_json::to_string(&summaries).unwrap();
-        assert!(!serialized.contains("local-secret"));
-        assert!(!serialized.contains("imported-secret"));
+        assert!(state.list().unwrap()[0].is_current);
+        let reopened = AppState::new(directory.path().to_path_buf()).unwrap();
+        assert_eq!(reopened.list().unwrap().len(), 1);
+        assert!(!reopened.list().unwrap()[0].is_current);
     }
 }

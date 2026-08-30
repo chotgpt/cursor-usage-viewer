@@ -26,8 +26,13 @@ pub enum AppError {
     Request(String),
     #[error("Cursor 响应超过安全大小限制")]
     ResponseTooLarge,
-    #[error("Cursor 返回了无法解析的 JSON（HTTP {0}）")]
-    InvalidJson(u16),
+    #[error("Cursor 返回无法解析的 JSON：HTTP {status}, content_type={content_type}, body_len={body_len}, body_kind={body_kind}")]
+    InvalidJsonEvidence {
+        status: u16,
+        content_type: String,
+        body_len: usize,
+        body_kind: &'static str,
+    },
     #[error("Cursor 官方端点返回了 HTTP {0}")]
     UnexpectedStatus(u16),
     #[error("粘贴的 Cockpit Tools JSON 超过 8 MiB 安全限制")]
@@ -40,6 +45,10 @@ pub enum AppError {
     ImportAccountInvalid { index: usize, reason: &'static str },
     #[error("找不到所选账号")]
     AccountNotFound,
+    #[error("账号 ID 不是安全的文件名")]
+    InvalidAccountId,
+    #[error("账号存储失败：{0}")]
+    Storage(String),
 }
 
 pub type AppResult<T> = Result<T, AppError>;
