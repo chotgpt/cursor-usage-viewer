@@ -13,7 +13,7 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: 22, cache: npm }
       - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
-        with: { toolchain: stable, components: rustfmt, clippy }
+        with: { toolchain: stable, components: 'rustfmt, clippy' }
       - run: npm ci
       - run: npm run check:version
       - run: npm test
@@ -23,10 +23,7 @@ jobs:
       - run: cargo test --manifest-path src-tauri/Cargo.toml
       - run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
       - name: Credential pattern gate
-        shell: pwsh
-        run: |
-          $tracked = git ls-files
-          if (Select-String -Path $tracked -Pattern 'WorkosCursorSessionToken=[^" ]+|TAURI_SIGNING_PRIVATE_KEY\s*=|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----') { throw 'credential-like material detected' }
+        run: node scripts/credential-pattern-gate.mjs
   bundle-smoke:
     needs: test
     strategy:
