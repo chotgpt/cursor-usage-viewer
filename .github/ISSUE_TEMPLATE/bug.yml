@@ -1,0 +1,21 @@
+name: Bug report
+description: Report a reproducible problem without credentials
+body:
+  - type: markdown
+    attributes: { value: "Never paste tokens, cookies, real account JSON, or private database content." }
+  - type: input
+    id: version
+    attributes: { label: Version }
+    validations: { required: true }
+  - type: dropdown
+    id: platform
+    attributes: { label: Platform, options: [Windows, macOS, Linux] }
+    validations: { required: true }
+  - type: textarea
+    id: steps
+    attributes: { label: Reproduction steps }
+    validations: { required: true }
+  - type: textarea
+    id: expected
+    attributes: { label: Expected and actual behavior }
+    validations: { required: true }

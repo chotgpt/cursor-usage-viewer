@@ -1,0 +1,45 @@
+name: CI
+on:
+  push: { branches: [main, master] }
+  pull_request:
+  workflow_dispatch:
+concurrency: { group: "ci-${{ github.ref }}", cancel-in-progress: true }
+permissions: { contents: read }
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: 22, cache: npm }
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+        with: { toolchain: stable, components: rustfmt, clippy }
+      - run: npm ci
+      - run: npm run check:version
+      - run: npm test
+      - run: npm run test:release
+      - run: npm run build
+      - run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+      - run: cargo test --manifest-path src-tauri/Cargo.toml
+      - run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
+      - name: Credential pattern gate
+        shell: pwsh
+        run: |
+          $tracked = git ls-files
+          if (Select-String -Path $tracked -Pattern 'WorkosCursorSessionToken=[^" ]+|TAURI_SIGNING_PRIVATE_KEY\s*=|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----') { throw 'credential-like material detected' }
+  bundle-smoke:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix: { os: [windows-latest, macos-latest, ubuntu-22.04] }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: 22, cache: npm }
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+        with: { toolchain: stable }
+      - if: matrix.os == 'ubuntu-22.04'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - run: npm ci
+      - run: npm run tauri build -- --no-bundle

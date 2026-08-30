@@ -1,0 +1,95 @@
+name: Draft release
+on:
+  push: { tags: ['v*'] }
+  workflow_dispatch:
+    inputs:
+      tag: { description: Existing v* tag, required: true, type: string }
+permissions: { contents: read }
+jobs:
+  validate:
+    runs-on: ubuntu-22.04
+    outputs: { tag: "${{ steps.version.outputs.tag }}" }
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run check:version && npm test && npm run test:release && npm run build
+      - id: version
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          test "$TAG" = "v$VERSION"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+  build:
+    needs: validate
+    permissions: { contents: write }
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, args: '--bundles nsis,msi', label: windows-x86_64 }
+          - { os: macos-15-intel, args: '--target x86_64-apple-darwin --bundles app,dmg', label: darwin-x86_64 }
+          - { os: macos-14, args: '--target aarch64-apple-darwin --bundles app,dmg', label: darwin-aarch64 }
+          - { os: macos-14, args: '--target universal-apple-darwin --bundles app,dmg', label: darwin-universal }
+          - { os: ubuntu-22.04, args: '--bundles appimage,deb,rpm', label: linux-x86_64 }
+          - { os: ubuntu-24.04-arm, args: '--bundles appimage,deb,rpm', label: linux-aarch64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: 22, cache: npm }
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+        with: { toolchain: stable }
+      - if: startsWith(matrix.os, 'ubuntu-')
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf rpm
+      - run: npm ci
+      - uses: tauri-apps/tauri-action@fce9c6108b31ea247710505d3aaaa893ee6768d4 # v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ needs.validate.outputs.tag }}
+          releaseName: Cursor Usage Viewer ${{ needs.validate.outputs.tag }}
+          releaseDraft: true
+          prerelease: false
+          includeUpdaterJson: false
+          args: ${{ matrix.args }}
+  gate:
+    needs: [validate, build]
+    runs-on: ubuntu-22.04
+    permissions: { contents: write, id-token: write, attestations: write }
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: 22 }
+      - name: Download and verify signed updater assets
+        env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}", TAG: "${{ needs.validate.outputs.tag }}" }
+        run: |
+          gh release view "$TAG" --json isDraft,isPrerelease,assets > release.json
+          node -e "const r=require('./release.json');if(!r.isDraft||r.isPrerelease||r.assets.length<4)process.exit(1)"
+          mkdir assets manifests
+          gh release download "$TAG" --dir assets
+          VERSION=$(node -p "require('./package.json').version")
+          PUB_DATE=$(gh release view "$TAG" --json createdAt --jq .createdAt)
+          COMMON_ARGS="--assets-dir assets --output-dir manifests --repo $GITHUB_REPOSITORY --version $VERSION --notes-file CHANGELOG.md --pub-date $PUB_DATE"
+          node scripts/release/build-target-manifests.mjs $COMMON_ARGS
+          node scripts/release/build-latest-manifest.mjs $COMMON_ARGS
+          node scripts/release/verify-manifests.mjs $COMMON_ARGS
+          gh release upload "$TAG" manifests/*.json
+      - name: Checksums and final Draft gate
+        env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}", TAG: "${{ needs.validate.outputs.tag }}" }
+        run: |
+          find assets manifests -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+          gh release upload "$TAG" SHA256SUMS.txt
+          gh release view "$TAG" --json isDraft,isPrerelease,assets > final-release.json
+          node -e "const r=require('./final-release.json');const n=new Set(r.assets.map(x=>x.name));const required=['latest.json','SHA256SUMS.txt'];for(const x of required)if(!n.has(x))process.exit(1);if(!r.isDraft||r.isPrerelease)process.exit(1)"
+      - uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
+        with:
+          subject-path: |
+            assets/**
+            manifests/**
+            SHA256SUMS.txt
+      - run: echo 'Draft verified. This workflow never publishes the release.'
