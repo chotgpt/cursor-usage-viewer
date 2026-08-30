@@ -1,8 +1,8 @@
-# Local verification — 2026-08-30
+# Verification record — 2026-08-30/31
 
-Scope: repository code and isolated fixtures only. No real Cursor database, token, clipboard, application data, Cursor request, user process or installed application was accessed.
+Scope: repository code, isolated fixtures, GitHub-hosted runners and the private `chotgpt/cursor-usage-viewer` Draft Release only. No real Cursor database, token, clipboard, application data, Cursor request, user process or installed application was accessed.
 
-## Passed
+## Local verification passed
 
 - React/Vitest: 9 tests across account workspace, one-click refresh, paste import, masked export, version-change notes, updater scheduling, retry and target selection.
 - Rust: 21 tests across storage/recovery/deletion, Cockpit-compatible import, three-platform Cursor DB paths, fixed Cursor refresh chain, Free/non-JSON behavior, desktop settings, updater settings and Linux package safety.
@@ -12,10 +12,28 @@ Scope: repository code and isolated fixtures only. No real Cursor database, toke
 - Four workflow YAML files parse successfully. Release-script tests prove missing/duplicate targets fail closed and complete assets generate ten target manifests plus merged `latest.json`.
 - Credential-pattern scans report `WORKTREE_CLEAN` and `HISTORY_CLEAN`; only tracked and non-ignored repository files were scanned, and matching secret contents would not have been printed.
 
-## Deliberately pending external evidence
+## Private GitHub rehearsal evidence
 
-- GitHub owner, production updater public/private key material and GitHub CLI/login are not available.
-- Repository creation/push/settings/secrets, visibility change and `v0.1.0` Draft/stable publication require current user authorization.
-- macOS Intel/Apple Silicon/Universal and Linux x86_64/aarch64 bundles, three-platform installation checks and old-test-version updater E2E require their GitHub runners or platform machines.
+- Repository: private `chotgpt/cursor-usage-viewer`; default branch `main`; production updater key is held outside the repository and injected through GitHub Secrets.
+- CI run [`33321844363`](https://github.com/chotgpt/cursor-usage-viewer/actions/runs/33321844363) passed the complete test job and `--no-bundle` smoke on macOS, Windows and Ubuntu. This includes version sync, 9 React tests, 3 release tests, production frontend build, Rust formatting, 21 Rust tests, Clippy `-D warnings`, credential gate and three runner builds.
+- Draft run [`33324854984`](https://github.com/chotgpt/cursor-usage-viewer/actions/runs/33324854984) passed all six signed bundle jobs: Windows NSIS/MSI; macOS Intel, Apple Silicon and Universal; Linux x86_64/aarch64 AppImage, deb and rpm. Its asset/signature, ten target manifest, merged manifest, SHA256 and Draft-state checks passed. The final attestation step was rejected because GitHub does not offer attestations for user-owned private repositories.
+- Final workflow run [`33325646227`](https://github.com/chotgpt/cursor-usage-viewer/actions/runs/33325646227) again passed all six bundle jobs. Its gate generated and verified 10 target manifests and 15 merged platform entries; the run then exposed a rerun-only same-name upload conflict, fixed by commit `86d8379` using derived-file cleanup and `--clobber`.
+- Because GitHub stopped allocating private runners after the above builds, run [`33326429688`](https://github.com/chotgpt/cursor-usage-viewer/actions/runs/33326429688) had zero executed steps. Its check annotation says account payments failed or the Actions spending limit must be increased. This is an external billing block, not a test or build failure.
+- The idempotent gate was therefore executed once from an isolated local temporary directory against the six-runner Draft assets: 25 installer/signature inputs, 10 target manifests, 15 merged platform entries, and 36 SHA256 lines were generated and verified, then uploaded with overwrite semantics.
+- Current `v0.1.0` release state: Draft `true`, prerelease `false`, tag target `5280be2a65ad53d949537bae2375e4b2f86f0057`, 37 assets, 10 target manifests, `latest.json` and `SHA256SUMS.txt` present. The release was not published.
+
+## GitHub platform limitations recorded
+
+- CodeQL analysis covers 17/17 TypeScript files, 12/12 JavaScript files and 4/4 workflow files. Upload is rejected with `Code scanning is not enabled for this repository`; enabling it through the API returns HTTP 403 for this private repository. The workflow retains the required permissions and will upload after the repository is public or GitHub Advanced Security is enabled.
+- Build provenance attestation is conditionally required when the repository is public. GitHub returns `Feature not available for user-owned private repositories` during the private rehearsal, so the workflow records this limitation instead of fabricating an attestation.
+- Branch rulesets and secret scanning are unavailable for this private repository/account tier. The repository was not made public to bypass those restrictions.
+- Dependabot alert 1 is the upstream `glib 0.18.5` soundness advisory (moderate; patched in 0.20). `cargo tree --target all -i glib` shows it is pinned by the Tauri 2.11.5 GTK/WebKit/tray stack rather than directly depended upon; a standalone major upgrade would split the GTK ABI and is not included in this release rehearsal.
+
+## Remaining plan-matrix evidence
+
+- Plan §17.1–17.3 and the build portion of §18 are covered by the local and GitHub evidence above.
+- Plan §17.4 still requires installation/update E2E from an old isolated test build on actual Windows NSIS/MSI, macOS Intel/Apple Silicon, and Linux AppImage/deb/rpm environments, including cancel/retry/signature-failure/manual-download/restart/release-notes behavior. Successful package generation is not claimed as installation E2E.
+- Plan §18 attestation remains unavailable while the repository is private. Public visibility and stable publication remain separate user-authorized actions and were not performed.
+- The final idempotent workflow run cannot be green until the GitHub Actions billing/spending-limit block is resolved. After resolution, rerun `release.yml` on `main` with input `tag=v0.1.0`; it must stay Draft.
 
 Decision basis: `docs/DECISIONS.md` §D-011–D-014 and `docs/adr/0002-github-releases-and-signed-updater.md`.
