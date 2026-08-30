@@ -1,1 +1,1 @@
-export const RELEASE_PAGE_URL = "https://github.com/OWNER/cursor-usage-viewer/releases/latest";
+export const RELEASE_PAGE_URL = "https://github.com/chotgpt/cursor-usage-viewer/releases/latest";
