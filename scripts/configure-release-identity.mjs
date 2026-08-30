@@ -9,7 +9,10 @@ config.plugins = config.plugins ?? {};
 config.plugins.updater = { pubkey: publicKey, endpoints: [`https://github.com/${owner}/cursor-usage-viewer/releases/latest/download/latest-{{target}}.json`, `https://github.com/${owner}/cursor-usage-viewer/releases/latest/download/latest.json`] };
 fs.writeFileSync(file, JSON.stringify(config, null, 2) + "\n");
 const issue = new URL("../.github/ISSUE_TEMPLATE/config.yml", import.meta.url);
-fs.writeFileSync(issue, fs.readFileSync(issue, "utf8").replaceAll("OWNER", owner));
+fs.writeFileSync(
+  issue,
+  fs.readFileSync(issue, "utf8").replace("github.com/OWNER/", `github.com/${owner}/`),
+);
 const releaseConfig = new URL("../src/config/release.ts", import.meta.url);
 fs.writeFileSync(
   releaseConfig,
