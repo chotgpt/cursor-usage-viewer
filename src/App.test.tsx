@@ -6,7 +6,13 @@ import App from "./App";
 import type { CursorAccountView } from "./types";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock("@tauri-apps/api/app", () => ({ getBundleType: vi.fn(async () => "nsis"), getVersion: vi.fn(async () => "1.1.0") }));
+vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => () => undefined) }));
+vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
+vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: vi.fn() }));
+vi.mock("@tauri-apps/plugin-updater", () => ({ check: vi.fn() }));
 const mockedInvoke = vi.mocked(invoke);
+let versionChange: { fromVersion: string; toVersion: string; notes: string } | null = null;
 
 function account(id = "cursor_one", email = "one@example.invalid"): CursorAccountView {
   return { id, email, authId: `auth0|${id}`, name: null, tags: ["500 credits"], membershipType: "pro", subscriptionStatus: "active", signUpType: "Auth_0", status: null, statusReason: null, source: "cockpit-tools", hasAccessToken: true, hasRefreshToken: true, isCurrent: false,
@@ -18,9 +24,12 @@ function account(id = "cursor_one", email = "one@example.invalid"): CursorAccoun
 describe("multi-account workspace", () => {
   beforeEach(() => {
     localStorage.clear();
+    versionChange = null;
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
     mockedInvoke.mockImplementation(async (command, args) => {
       if (command === "list_cursor_accounts") return [account()];
+      if (command === "get_update_settings") return { schemaVersion: 1, autoCheck: false, checkIntervalHours: 1, autoInstall: false, remindOnUpdate: true, lastCheckTime: 0, lastRunVersion: "", skippedVersion: "", pendingNotes: null };
+      if (command === "consume_version_change") return versionChange;
       if (command === "refresh_cursor_account") return { ...account(), lastUsed: 3 };
       if (command === "import_cockpit_accounts_json") return [account("cursor_imported", "imported@example.invalid")];
       if (command === "export_cursor_accounts") return JSON.stringify([{ id: "cursor_one", access_token: "fake.secret.token" }]);
@@ -32,7 +41,10 @@ describe("multi-account workspace", () => {
   it("restores local accounts on startup without reading or refreshing Cursor", async () => {
     render(<App />);
     expect(await screen.findByText("one@example.invalid")).toBeVisible();
-    expect(mockedInvoke.mock.calls.map(([command]) => command)).toEqual(["list_cursor_accounts"]);
+    const commands = mockedInvoke.mock.calls.map(([command]) => String(command));
+    expect(commands).toContain("list_cursor_accounts");
+    expect(commands).not.toContain("load_current_cursor_account");
+    expect(commands).not.toContain("refresh_cursor_account");
     expect(document.body.textContent).not.toContain("fake.secret.token");
   });
 
@@ -63,5 +75,16 @@ describe("multi-account workspace", () => {
     const dialog = await screen.findByRole("dialog", { name: "完整账号 JSON" });
     expect(dialog).toHaveTextContent("••••••••");
     expect(dialog).not.toHaveTextContent("fake.secret.token");
+  });
+
+  it("shows the saved release notes once after an upgrade", async () => {
+    versionChange = { fromVersion: "1.0.0", toVersion: "1.1.0", notes: "Improved signed updates" };
+    const user = userEvent.setup();
+    render(<App />);
+    const dialog = await screen.findByRole("dialog", { name: "版本更新说明" });
+    expect(dialog).toHaveTextContent("1.0.0 → 1.1.0");
+    expect(dialog).toHaveTextContent("Improved signed updates");
+    await user.click(screen.getByRole("button", { name: "知道了" }));
+    expect(screen.queryByRole("dialog", { name: "版本更新说明" })).not.toBeInTheDocument();
   });
 });

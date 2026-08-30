@@ -131,7 +131,7 @@ impl AccountStore {
                 }
             }
         }
-        accounts.sort_by(|left, right| right.last_used.cmp(&left.last_used));
+        accounts.sort_by_key(|account| std::cmp::Reverse(account.last_used));
         accounts.dedup_by(|left, right| left.id == right.id);
         let index = AccountIndex {
             schema_version: ACCOUNT_SCHEMA_VERSION,
@@ -260,12 +260,14 @@ fn merge_account(
     replace_some(&mut primary.cursor_usage_raw, incoming.cursor_usage_raw);
     replace_some(&mut primary.status, incoming.status);
     replace_some(&mut primary.status_reason, incoming.status_reason);
-    if incoming.core_usage.as_ref().is_some_and(|value| {
-        primary
-            .core_usage
-            .as_ref()
-            .is_none_or(|old| value.updated_at >= old.updated_at)
-    }) {
+    if incoming
+        .core_usage
+        .as_ref()
+        .is_some_and(|value| match primary.core_usage.as_ref() {
+            Some(old) => value.updated_at >= old.updated_at,
+            None => true,
+        })
+    {
         primary.core_usage = incoming.core_usage;
     }
     if sand_timestamp(incoming.sand.as_ref()) >= sand_timestamp(primary.sand.as_ref()) {

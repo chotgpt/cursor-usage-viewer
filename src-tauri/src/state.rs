@@ -3,24 +3,32 @@ use std::{path::PathBuf, sync::Mutex};
 use zeroize::Zeroizing;
 
 use crate::{
+    desktop::{CloseBehavior, DesktopSettingsStore},
     error::{AppError, AppResult},
     model::{CursorAccountRecord, CursorAccountView},
     provider::CursorUsageProvider,
     storage::AccountStore,
+    updater::{PendingNotes, UpdateSettings, UpdateSettingsStore},
 };
 
 pub struct AppState {
     store: Mutex<AccountStore>,
     current_id: Mutex<Option<String>>,
     pub provider: CursorUsageProvider,
+    desktop: DesktopSettingsStore,
+    updates: UpdateSettingsStore,
 }
 
 impl AppState {
     pub fn new(data_dir: PathBuf) -> AppResult<Self> {
+        let desktop = DesktopSettingsStore::new(&data_dir);
+        let updates = UpdateSettingsStore::new(&data_dir);
         Ok(Self {
             store: Mutex::new(AccountStore::new(data_dir)),
             current_id: Mutex::new(None),
             provider: CursorUsageProvider::new()?,
+            desktop,
+            updates,
         })
     }
 
@@ -126,6 +134,38 @@ impl AppState {
 
     pub fn persist(&self, account: CursorAccountRecord) -> AppResult<CursorAccountView> {
         self.upsert(account, false)
+    }
+
+    pub fn close_behavior(&self) -> CloseBehavior {
+        self.desktop.load().close_behavior
+    }
+
+    pub fn set_close_behavior(&self, behavior: CloseBehavior) -> AppResult<()> {
+        let mut settings = self.desktop.load();
+        settings.close_behavior = behavior;
+        self.desktop.save(&settings)
+    }
+
+    pub fn update_settings(&self) -> UpdateSettings {
+        self.updates.load()
+    }
+    pub fn save_update_settings(&self, settings: &UpdateSettings) -> AppResult<()> {
+        self.updates.save(settings)
+    }
+    pub fn mark_update_checked(&self) -> AppResult<UpdateSettings> {
+        self.updates.mark_checked()
+    }
+    pub fn prepare_update_install(
+        &self,
+        from_version: &str,
+        to_version: &str,
+        notes: &str,
+    ) -> AppResult<()> {
+        self.updates
+            .prepare_install(from_version, to_version, notes)
+    }
+    pub fn consume_version_change(&self, current_version: &str) -> AppResult<Option<PendingNotes>> {
+        self.updates.consume_version_change(current_version)
     }
 }
 

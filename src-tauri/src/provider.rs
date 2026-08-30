@@ -392,9 +392,10 @@ fn jwt_payload(token: &str) -> Option<Value> {
     serde_json::from_slice(&bytes).ok()
 }
 fn token_needs_refresh(token: &str) -> bool {
-    jwt_payload(token)
-        .and_then(|v| v.get("exp")?.as_i64())
-        .is_none_or(|exp| exp <= now_seconds() + 300)
+    match jwt_payload(token).and_then(|v| v.get("exp")?.as_i64()) {
+        Some(exp) => exp <= now_seconds() + 300,
+        None => true,
+    }
 }
 fn build_session_cookie(token: &str) -> AppResult<Zeroizing<String>> {
     let payload = jwt_payload(token).ok_or(AppError::InvalidSessionToken)?;

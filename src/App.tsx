@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { dictionaries, initialLanguage, type Language } from "./i18n";
 import { PAGE_SIZES, usePagination } from "./hooks/usePagination";
 import * as cursor from "./services/cursorService";
 import type { CursorAccountView, UsageAmount } from "./types";
+import { useAppUpdater } from "./hooks/useAppUpdater";
+import UpdateDialog from "./components/updater/UpdateDialog";
+import VersionChangedDialog from "./components/updater/VersionChangedDialog";
+import { save } from "@tauri-apps/plugin-dialog";
 
 type Page = "cursor" | "settings";
 type Layout = "grid" | "list";
@@ -11,6 +16,7 @@ export default function App() {
   const [page, setPage] = useState<Page>("cursor");
   const [language, setLanguage] = useState<Language>(initialLanguage);
   const t = dictionaries[language];
+  const updater = useAppUpdater();
   const [accounts, setAccounts] = useState<CursorAccountView[]>([]);
   const [message, setMessage] = useState("就绪");
   const [busy, setBusy] = useState<Set<string>>(new Set());
@@ -24,10 +30,20 @@ export default function App() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showImport, setShowImport] = useState(false);
   const [importText, setImportText] = useState("");
-  const [exportState, setExportState] = useState<{ json: string; revealed: boolean } | null>(null);
+  const [exportState, setExportState] = useState<{ json: string; ids: string[]; revealed: boolean } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [closePrompt, setClosePrompt] = useState(false);
+  const [rememberClose, setRememberClose] = useState(false);
 
   useEffect(() => { void cursor.listAccounts().then(setAccounts).catch((error) => setMessage(`加载失败：${readable(error)}`)); }, []);
+  useEffect(() => {
+    if (!cursor.isTauri()) return;
+    const subscriptions = Promise.all([
+      listen("close-requested", () => setClosePrompt(true)),
+      listen("manual-update-requested", () => { setPage("settings"); setMessage("正在检查应用更新…"); void updater.checkNow(true); }),
+    ]);
+    return () => { void subscriptions.then((items) => items.forEach((unlisten) => unlisten())); };
+  }, [updater.checkNow]);
 
   const memberships = useMemo(() => unique(accounts.map((item) => item.membershipType).filter(Boolean) as string[]), [accounts]);
   const tags = useMemo(() => unique(accounts.flatMap((item) => item.tags)), [accounts]);
@@ -52,7 +68,8 @@ export default function App() {
   async function refreshOne(id: string) { await withBusy([id], async () => { try { replaceAccount(await cursor.refreshAccount(id)); setMessage("额度已更新"); } catch (error) { setMessage(`查询失败：${readable(error)}`); } }); }
   async function refreshMany(ids: string[]) { if (!ids.length) return; await withBusy(ids, async () => { const results = await cursor.refreshAccounts(ids); for (const item of results) if (item.result) replaceAccount(item.result); const failures = results.filter((item) => item.error).length; setMessage(failures ? `刷新完成，${failures} 个账号失败` : `已刷新 ${results.length} 个账号`); }); }
   async function submitImport() { const payload = importText; setImportText(""); if (!payload.trim()) return; setShowImport(false); await withBusy(["import"], async () => { try { setAccounts(await cursor.importAccounts(payload)); setMessage("账号已导入并保存到本机"); } catch (error) { setMessage(`导入失败：${readable(error)}`); } }); }
-  async function openExport(ids?: string[]) { const scope = ids ?? (selected.size ? filtered.filter((item) => selected.has(item.id)).map((item) => item.id) : filtered.map((item) => item.id)); if (!scope.length) return; try { setExportState({ json: await cursor.exportAccounts(scope), revealed: false }); } catch (error) { setMessage(`导出失败：${readable(error)}`); } }
+  async function openExport(ids?: string[]) { const scope = ids ?? (selected.size ? filtered.filter((item) => selected.has(item.id)).map((item) => item.id) : filtered.map((item) => item.id)); if (!scope.length) return; try { setExportState({ json: await cursor.exportAccounts(scope), ids: scope, revealed: false }); } catch (error) { setMessage(`导出失败：${readable(error)}`); } }
+  async function saveExportFile() { if (!exportState) return; if (!cursor.isTauri()) { downloadJson(exportState.json); return; } const path = await save({ defaultPath: "cursor-accounts.json", filters: [{ name: "JSON", extensions: ["json"] }] }); if (path) { await cursor.saveExport(exportState.ids, path); setMessage(`已保存 ${exportState.ids.length} 个账号`); } }
   async function confirmDelete() { if (!deleteTarget) return; const id = deleteTarget; setDeleteTarget(null); await cursor.deleteAccount(id); setAccounts((items) => items.filter((item) => item.id !== id)); setSelected((items) => { const next = new Set(items); next.delete(id); return next; }); setMessage("本地账号及凭据备份已删除"); }
 
   return <div className="app-shell">
@@ -64,7 +81,7 @@ export default function App() {
       <div className="version">v0.1.0 · MIT<br/><span>UNOFFICIAL</span></div>
     </aside>
     <main className="main-area">
-      {page === "settings" ? <Settings language={language} setLanguage={setLanguage} /> : <>
+      {page === "settings" ? <Settings language={language} setLanguage={setLanguage} updater={updater} /> : <>
         <header className="page-head"><div><p>LOCAL ACCOUNT WORKSPACE</p><h1>Cursor <span>{accounts.length} {t.accounts}</span></h1></div><div className="status"><i className={message.includes("失败") ? "error" : ""}/>{message}</div></header>
         <details className="local-notice"><summary>本地处理与隐私说明</summary><p>{t.localNotice}</p></details>
         <section className="toolbar">
@@ -85,9 +102,12 @@ export default function App() {
         <footer className="pagination"><span>第 {pagination.page} / {pagination.pageCount} 页</span><label>每页 <select aria-label="每页数量" value={pagination.pageSize} onChange={(event) => pagination.setPageSize(Number(event.target.value))}>{PAGE_SIZES.map((size) => <option key={size}>{size}</option>)}</select></label><button disabled={pagination.page === 1} onClick={() => pagination.setPage(pagination.page - 1)}>上一页</button><button disabled={pagination.page === pagination.pageCount} onClick={() => pagination.setPage(pagination.page + 1)}>下一页</button></footer>
       </>}
     </main>
+    <UpdateDialog updater={updater}/>
+    {updater.versionChange && <VersionChangedDialog change={updater.versionChange} onClose={updater.dismissVersionChange}/>}
     {showImport && <Modal title="粘贴 Cockpit JSON" onClose={() => { setShowImport(false); setImportText(""); }}><p className="warning">支持单对象、数组、accounts/items 包装；提交后立即清空。Token 将明文保存在本机。</p><textarea autoFocus aria-label="Cockpit Tools JSON" value={importText} onChange={(event) => setImportText(event.target.value)} /><div className="modal-actions"><button onClick={() => { setShowImport(false); setImportText(""); }}>取消</button><button className="primary" disabled={!importText.trim()} onClick={() => void submitImport()}>导入</button></div></Modal>}
-    {exportState && <Modal title="完整账号 JSON" onClose={() => setExportState(null)}><p className="warning">包含明文 Access / Refresh Token。预览默认遮罩，请谨慎复制或保存。</p><pre className="export-preview">{exportState.revealed ? exportState.json : maskJson(exportState.json)}</pre><div className="modal-actions"><button onClick={() => setExportState({ ...exportState, revealed: !exportState.revealed })}>{exportState.revealed ? "隐藏" : "显示"}</button><button onClick={() => void navigator.clipboard.writeText(exportState.json)}>复制完整 JSON</button><button className="primary" onClick={() => downloadJson(exportState.json)}>保存 JSON</button></div></Modal>}
+    {exportState && <Modal title="完整账号 JSON" onClose={() => setExportState(null)}><p className="warning">包含明文 Access / Refresh Token。预览默认遮罩，请谨慎复制或保存。</p><pre className="export-preview">{exportState.revealed ? exportState.json : maskJson(exportState.json)}</pre><div className="modal-actions"><button onClick={() => setExportState({ ...exportState, revealed: !exportState.revealed })}>{exportState.revealed ? "隐藏" : "显示"}</button><button onClick={() => void navigator.clipboard.writeText(exportState.json)}>复制完整 JSON</button><button className="primary" onClick={() => void saveExportFile()}>保存 JSON</button></div></Modal>}
     {deleteTarget && <Modal title="删除本地账号？" onClose={() => setDeleteTarget(null)}><p>账号明细、凭据和对应 .bak 将从本机删除，无法撤销。</p><div className="modal-actions"><button onClick={() => setDeleteTarget(null)}>取消</button><button className="danger" onClick={() => void confirmDelete()}>删除</button></div></Modal>}
+    {closePrompt && <Modal title="关闭 Cursor Usage Viewer" onClose={() => setClosePrompt(false)}><p>选择最小化到系统托盘继续运行，或完全退出应用。托盘不会后台刷新 Cursor 额度。</p><label className="remember-close"><input type="checkbox" checked={rememberClose} onChange={(event) => setRememberClose(event.target.checked)}/>记住选择</label><div className="modal-actions"><button onClick={() => { setClosePrompt(false); void cursor.performClose("tray", rememberClose); }}>最小化到托盘</button><button className="danger" onClick={() => void cursor.performClose("exit", rememberClose)}>退出</button></div></Modal>}
   </div>;
 }
 
@@ -104,7 +124,7 @@ function AccountCard({ account, privacy, selected, busy, onSelect, onRefresh, on
 }
 
 function Quota({ label, value }: { label: string; value?: UsageAmount }) { const p = clamp(value?.percentUsed ?? (value?.used != null && value.limit ? value.used / value.limit * 100 : null)); return <div className="quota"><span>{label}</span><strong>{percent(p)}</strong><div><i style={{ width: `${p ?? 0}%` }}/></div><small>{value?.used == null ? "暂无数据" : `${number(value.used)} / ${value.limit == null ? "—" : number(value.limit)}`}</small></div>; }
-function Settings({ language, setLanguage }: { language: Language; setLanguage: (value: Language) => void }) { const t = dictionaries[language]; return <section className="settings-page"><header className="page-head"><div><p>APPLICATION</p><h1>{t.settings}</h1></div></header><div className="settings-tabs"><button className="active">{t.general}</button><button>{t.about}</button></div><div className="settings-card"><label><span><strong>{t.language}</strong><small>界面语言立即生效</small></span><select value={language} onChange={(event) => { const value = event.target.value as Language; localStorage.setItem("cursor-language", value); setLanguage(value); }}><option value="zh-CN">简体中文</option><option value="en">English</option></select></label><label><span><strong>关闭行为</strong><small>默认每次询问最小化到托盘或退出</small></span><select><option>每次询问</option><option>最小化到托盘</option><option>退出</option></select></label><label><span><strong>自动检查更新</strong><small>每小时检查一次；不会刷新 Cursor 额度</small></span><input type="checkbox" defaultChecked /></label></div><div className="about-card"><strong>Cursor Usage Viewer</strong><span>v0.1.0 · MIT</span><p>{t.unofficial}</p><button>检查更新</button></div></section>; }
+function Settings({ language, setLanguage, updater }: { language: Language; setLanguage: (value: Language) => void; updater: ReturnType<typeof useAppUpdater> }) { const t = dictionaries[language]; const settings=updater.settings; return <section className="settings-page"><header className="page-head"><div><p>APPLICATION</p><h1>{t.settings}</h1></div></header><div className="settings-tabs"><button className="active">{t.general}</button><button>{t.about}</button></div><div className="settings-card"><label><span><strong>{t.language}</strong><small>界面语言立即生效</small></span><select value={language} onChange={(event) => { const value = event.target.value as Language; localStorage.setItem("cursor-language", value); setLanguage(value); }}><option value="zh-CN">简体中文</option><option value="en">English</option></select></label><label><span><strong>关闭行为</strong><small>默认每次询问最小化到托盘或退出</small></span><select><option>每次询问</option><option>最小化到托盘</option><option>退出</option></select></label><label><span><strong>自动检查更新</strong><small>每小时检查一次；不会刷新 Cursor 额度</small></span><input type="checkbox" checked={settings?.autoCheck??true} onChange={(event)=>settings&&void updater.saveSettings({...settings,autoCheck:event.target.checked})}/></label><label><span><strong>自动安装</strong><small>下载完成后等待你选择重启</small></span><input type="checkbox" checked={settings?.autoInstall??false} onChange={(event)=>settings&&void updater.saveSettings({...settings,autoInstall:event.target.checked})}/></label></div><div className="about-card"><strong>Cursor Usage Viewer</strong><span>v0.1.0 · MIT</span><p>{t.unofficial}</p><button onClick={()=>void updater.checkNow(true)}>检查更新</button></div></section>; }
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) { useEffect(() => { const key = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); }; window.addEventListener("keydown", key); return () => window.removeEventListener("keydown", key); }, [onClose]); return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="modal" role="dialog" aria-modal="true" aria-label={title}><header><h2>{title}</h2><button aria-label="关闭" onClick={onClose}>×</button></header>{children}</section></div>; }
 
 function unique(values: string[]) { return [...new Set(values)].sort(); }

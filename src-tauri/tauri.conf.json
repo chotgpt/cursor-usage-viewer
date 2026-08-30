@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Cursor 额度查看器",
+  "productName": "Cursor Usage Viewer",
   "version": "0.1.0",
   "identifier": "com.local.cursor-usage-viewer",
   "build": {
@@ -16,16 +16,18 @@
     "windows": [
       {
         "title": "Cursor 额度查看器",
-        "width": 1040,
-        "height": 780,
-        "minWidth": 760,
-        "minHeight": 620,
+        "width": 1280,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600,
         "resizable": true,
         "center": true
       }
     ]
   },
   "bundle": {
-    "active": false
+    "active": true,
+    "createUpdaterArtifacts": true,
+    "targets": "all"
   }
 }
