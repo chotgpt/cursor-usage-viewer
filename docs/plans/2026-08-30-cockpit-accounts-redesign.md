@@ -245,11 +245,12 @@ Linux:   ~/.config/Cursor/User/globalStorage/state.vscdb
 - 窗口 1280×800，最小 900×600，居中、可缩放。
 - 深色窄侧栏：原创品牌；`Cursor` 主入口；底部 `设置` 和版本/更新状态。
 - 主区域只有 `Cursor` 与 `设置`，用页面枚举，不引路由库。
-- Cursor 页沿用用户选定的第 3 套深色视觉，只复刻 Cockpit 信息结构。
+- Cursor 页按用户 2026-08-31 提供的 Cockpit 参考截图复刻整体结构、空间关系、密度和视觉结果，同时保持 clean-room：不得复制源码、CSS、品牌、资源或文案；详见 `docs/DECISIONS.md` §D-016。
 - 顶部可折叠说明：本地明文、Token 不上传、用户主动查询；展开状态本地保存。
 - 工具栏：搜索、网格/列表、套餐筛选、标签筛选/分组、排序、升降序、读取本机、粘贴导入、刷新全部、隐私模式、导出。
 - 不显示 OAuth `+`、切号/注入/播放按钮或无关快捷设置。
 - 先筛选/分组/排序再分页；默认 20，可选 20/50/100，页大小记忆；全选只作用当前页。
+- 用户主动读取并识别的本机当前账号在筛选结果中固定置顶，优先级高于排序字段和升降序；其余账号按用户选择排序。
 - “一屏展示所有数据”指单卡无需详情即可看完整指标，不承诺全部账号无滚动。
 
 卡片顺序：复选/邮箱/当前/套餐/错误；Auth ID/标签；Total；Auto + Composer；API；On-Demand；紧凑 Sand usage/access/reset；数据来源与时间；编辑标签/刷新/导出/删除。Free 缺字段显示“暂无数据”，不伪造 0；列表视图复用同一 view model；隐私模式遮罩邮箱/Auth ID。
@@ -499,11 +500,13 @@ README 至少含截图、平台下载表、安装警告、数据目录、明文 
 - General/About、语言、关闭行为；
 - 更新 latest/up-to-date/error、skip/later/cancel/retry/fallback/restart、版本变化；
 - 焦点、Escape、reduced-motion、中英文不溢出。
+- 固定假账号、Chromium、1280×800、确定字体/时区和禁用动画的 Playwright 截图基线；CI 像素差失败即阻塞，基线更新作为显式代码变更审核。
 
 ### 17.3 本地命令
 
 ```powershell
 npm test
+npm run test:visual
 npm run build
 cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 cargo test --manifest-path src-tauri/Cargo.toml
@@ -519,6 +522,7 @@ Release scripts 必须有 Node 单元测试。
 ## 18. 最终验收
 
 - 单卡完整展示四组额度和紧凑 Sand；多账号导入、存盘、恢复、合并、筛选、分页、刷新、删除、完整导出工作。
+- 本机当前账号始终位于筛选结果第一；1280×800 截图基线通过，且用户对精确候选 tag/SHA 的新鲜截图完成人工视觉验收。自动视觉门不得冒充用户验收。
 - 删除不遗留含 Token 的账号 `.bak`；普通 DTO/日志/DOM 不泄密。
 - 启动不访问 Cursor/本机 DB；只按设置访问本项目 GitHub 更新源。
 - Cockpit 固定刷新与 updater 行为映射有源码路径和回归测试。

@@ -7,6 +7,7 @@ const tagSha = "a".repeat(40);
 const checks = [
   "SOURCE_REVIEWED",
   "UI_ACCEPTED",
+  "VISUAL_GATE_ACCEPTED",
   "CORE_FUNCTIONS_ACCEPTED",
   "PERSISTENCE_ACCEPTED",
   "SECURITY_ACCEPTED",
@@ -55,6 +56,15 @@ test("an unchecked human acceptance item blocks publication", () => {
   assert.throws(
     () => verifyReleaseApproval({ issue, repositoryOwner: "owner", tag, tagSha }),
     /UI_ACCEPTED/,
+  );
+});
+
+test("missing visual-gate acceptance blocks publication", () => {
+  const issue = approvalIssue();
+  issue.body = issue.body.replace("- [x] [VISUAL_GATE_ACCEPTED]\n", "");
+  assert.throws(
+    () => verifyReleaseApproval({ issue, repositoryOwner: "owner", tag, tagSha }),
+    /VISUAL_GATE_ACCEPTED/,
   );
 });
 

@@ -2,7 +2,7 @@
 
 Cursor Usage Viewer has one stable channel. Automated tests, AI self-review, successful builds and complete Draft assets are necessary evidence, but none of them constitutes human product acceptance. Stable publication requires two separate owner actions bound to one exact tag and commit.
 
-Decision basis: `docs/DECISIONS.md` §D-013–D-015 and `docs/adr/0002-github-releases-and-signed-updater.md`.
+Decision basis: `docs/DECISIONS.md` §D-013–D-016 and `docs/adr/0002-github-releases-and-signed-updater.md`.
 
 ## Roles and non-delegable actions
 
@@ -19,7 +19,7 @@ The repository owner performs the product acceptance and both release confirmati
 
 1. **Development:** changes live on a branch and enter `main` through a reviewed pull request.
 2. **Automated verification:** CI, CodeQL, dependency/security gates and three-platform build smoke pass on the exact candidate commit.
-3. **Human source/UI review:** the owner runs source locally, inspects the diff and tests user-visible behavior. Issues return to Development; this is not yet release acceptance.
+3. **Human source/UI review:** the owner runs source locally, inspects the diff, reviews the 1280×800 visual-baseline change and tests user-visible behavior. Issues return to Development; this is not yet release acceptance.
 4. **Frozen candidate:** version files and changelog are finalized, then one new `vX.Y.Z` tag is created on the verified `main` commit. Tag movement is prohibited.
 5. **Signed Draft:** `.github/workflows/release.yml` builds all platforms, signs updater artifacts, creates target manifests and `latest.json`, writes SHA256, attests provenance and leaves the release Draft.
 6. **Exact-candidate acceptance:** the owner tests the tagged source and candidate packages, including the real isolated updater E2E matrix, then completes `.github/ISSUE_TEMPLATE/release-acceptance.yml` for that exact tag and 40-character SHA. The owner adds `release-approved` and closes the issue only after every item is true.
@@ -35,7 +35,7 @@ Before merge:
 
 1. explain user-visible behavior and provide a manual test script;
 2. add or update boundary tests before implementation where a reliable seam exists;
-3. run React tests/build, Rust fmt/test/clippy, release tests and the credential gate;
+3. run React tests/build, the Playwright visual regression gate, Rust fmt/test/clippy, release tests and the credential gate;
 4. review dependencies, permissions, endpoint changes, bilingual copy and clean-room boundaries;
 5. obtain required GitHub checks and human PR approval.
 
@@ -58,6 +58,7 @@ Set the version in `package.json`, synchronize it and complete validation:
 ```powershell
 node scripts/sync-version.mjs
 npm test
+npm run test:visual
 npm run test:release
 npm run build
 cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
@@ -76,6 +77,7 @@ The owner must personally verify:
 
 - the exact source diff, dependencies, permissions, network boundaries and release notes;
 - UI, accessibility, compact layout, Chinese and English behavior;
+- the committed 1280×800 baseline diff and a fresh screenshot of the exact candidate, including three-column cards and the current account in the first position;
 - import, persistence/restart/recovery, search/filter/page, refresh, Free/non-JSON behavior, export and deletion;
 - clean logs/DOM/errors and no accidental real-data access;
 - old-to-new updater behavior on every required Windows, macOS and Linux package/platform, including cancel, retry, signature failure, manual fallback, restart and release notes;

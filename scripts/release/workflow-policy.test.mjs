@@ -4,6 +4,7 @@ import fs from "node:fs";
 
 const draft = fs.readFileSync(".github/workflows/release.yml", "utf8");
 const stable = fs.readFileSync(".github/workflows/publish-stable.yml", "utf8");
+const ci = fs.readFileSync(".github/workflows/ci.yml", "utf8");
 
 test("the build workflow can only create a Draft", () => {
   assert.match(draft, /releaseDraft:\s*true/);
@@ -23,4 +24,11 @@ test("stable publication revalidates after environment approval", () => {
   assert.equal((stable.match(/verify-required-checks\.mjs/g) ?? []).length, 2);
   assert.equal((stable.match(/verify-no-blockers\.mjs/g) ?? []).length, 2);
   assert.equal((stable.match(/gh attestation verify/g) ?? []).length, 2);
+});
+
+test("pull requests cannot bypass the deterministic visual regression gate", () => {
+  assert.match(ci, /npx playwright install chromium/);
+  assert.match(ci, /npm run test:visual/);
+  assert.match(ci, /actions\/upload-artifact@[0-9a-f]{40}/);
+  assert.match(ci, /playwright-report\//);
 });

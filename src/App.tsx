@@ -53,6 +53,7 @@ export default function App() {
       const matchesQuery = !query || [item.email, item.authId, item.name, ...item.tags].some((value) => value?.toLocaleLowerCase().includes(query));
       return matchesQuery && (membership === "all" || item.membershipType === membership) && (tag === "all" || item.tags.includes(tag));
     }).sort((left, right) => {
+      if (left.isCurrent !== right.isCurrent) return left.isCurrent ? -1 : 1;
       const result = sort === "email" ? (left.email ?? "").localeCompare(right.email ?? "") : sort === "plan" ? (left.membershipType ?? "").localeCompare(right.membershipType ?? "") : left.lastUsed - right.lastUsed;
       return ascending ? result : -result;
     });
@@ -74,30 +75,39 @@ export default function App() {
 
   return <div className="app-shell">
     <aside className="side-nav">
-      <div className="brand"><span className="brand-mark">⌁</span><div><strong>Cursor</strong><small>Usage Viewer</small></div></div>
-      <button className={page === "cursor" ? "nav active" : "nav"} onClick={() => setPage("cursor")}><span>◎</span>{t.cursor}<b>{accounts.length}</b></button>
+      <div className="brand"><span className="brand-mark">↗</span><div><strong>Usage Viewer</strong><small>CURSOR ACCOUNTS</small></div></div>
+      <div className="nav-rule" />
+      <p className="nav-label">账号工作区</p>
+      <button className={page === "cursor" ? "nav active" : "nav"} onClick={() => setPage("cursor")}><span className="nav-icon">◆</span>{t.cursor}<b>{accounts.length}</b></button>
       <div className="nav-spacer" />
-      <button className={page === "settings" ? "nav active" : "nav"} onClick={() => setPage("settings")}><span>⚙</span>{t.settings}</button>
+      <div className="nav-rule" />
+      <div className="nav-note"><span>♢</span><div><strong>本地保存</strong><small>凭据不会上传</small></div></div>
+      <button className={page === "settings" ? "nav active" : "nav"} onClick={() => setPage("settings")}><span className="nav-icon">⚙</span>{t.settings}</button>
       <div className="version">v0.1.0 · MIT<br/><span>UNOFFICIAL</span></div>
     </aside>
     <main className="main-area">
       {page === "settings" ? <Settings language={language} setLanguage={setLanguage} updater={updater} /> : <>
-        <header className="page-head"><div><p>LOCAL ACCOUNT WORKSPACE</p><h1>Cursor <span>{accounts.length} {t.accounts}</span></h1></div><div className="status"><i className={message.includes("失败") ? "error" : ""}/>{message}</div></header>
-        <details className="local-notice"><summary>本地处理与隐私说明</summary><p>{t.localNotice}</p></details>
+        <details className="local-notice" open>
+          <summary><span className="notice-info">i</span><span><strong>Cursor 账号管理说明</strong><small>点击展开或收起</small></span><span className="notice-chevron">⌄</span></summary>
+          <div className="notice-body"><p>{t.localNotice}</p><ul><li>账号凭据仅用于你主动发起的读取、导入、刷新和导出操作。</li><li>启动应用不会读取 Cursor 数据库，也不会自动查询 Cursor 额度。</li></ul></div>
+          <div className="status"><i className={message.includes("失败") ? "error" : ""}/>{message}</div>
+        </details>
         <section className="toolbar">
-          <label className="search"><span>⌕</span><input aria-label={t.search} placeholder={t.search} value={search} onChange={(event) => setSearch(event.target.value)} /></label>
+          <label className="search"><span>⌕</span><input aria-label={t.search} placeholder="搜索账号..." value={search} onChange={(event) => setSearch(event.target.value)} /></label>
+          <div className="layout-toggle" aria-label="布局选择"><button className={layout === "list" ? "active" : ""} aria-label="列表布局" onClick={() => setLayout("list")}>☷</button><button className={layout === "grid" ? "active" : ""} aria-label="网格布局" onClick={() => setLayout("grid")}>▦</button></div>
           <select aria-label="套餐筛选" value={membership} onChange={(event) => setMembership(event.target.value)}><option value="all">全部套餐</option>{memberships.map((value) => <option key={value}>{value}</option>)}</select>
-          <select aria-label="标签筛选" value={tag} onChange={(event) => setTag(event.target.value)}><option value="all">全部标签</option>{tags.map((value) => <option key={value}>{value}</option>)}</select>
-          <select aria-label="排序" value={sort} onChange={(event) => setSort(event.target.value)}><option value="last">最近使用</option><option value="email">邮箱</option><option value="plan">套餐</option></select>
+          <select aria-label="标签筛选" value={tag} onChange={(event) => setTag(event.target.value)}><option value="all">标签筛选</option>{tags.map((value) => <option key={value}>{value}</option>)}</select>
+          <select aria-label="排序" value={sort} onChange={(event) => setSort(event.target.value)}><option value="last">按最近使用</option><option value="email">按邮箱</option><option value="plan">按套餐</option></select>
           <button className="icon-button" aria-label="切换排序方向" onClick={() => setAscending((value) => !value)}>{ascending ? "↑" : "↓"}</button>
-          <button className="icon-button" aria-label="切换布局" onClick={() => setLayout((value) => value === "grid" ? "list" : "grid")}>{layout === "grid" ? "▦" : "☷"}</button>
-          <button className={privacy ? "icon-button active" : "icon-button"} aria-label="隐私模式" onClick={() => setPrivacy((value) => !value)}>◉</button>
-          <button onClick={() => void readLocal()} disabled={busy.has("local")}>{t.readLocal}</button>
-          <button onClick={() => setShowImport(true)}>{t.import}</button>
-          <button className="primary" onClick={() => void refreshMany(accounts.map((item) => item.id))} disabled={!accounts.length || busy.size > 0}>{t.refreshAll}</button>
+          <span className="toolbar-spacer" />
+          <button className="toolbar-icon accent" title={t.readLocal} aria-label={t.readLocal} onClick={() => void readLocal()} disabled={busy.has("local")}>＋</button>
+          <button className="toolbar-icon" title={t.refreshAll} aria-label={t.refreshAll} onClick={() => void refreshMany(accounts.map((item) => item.id))} disabled={!accounts.length || busy.size > 0}>↻</button>
+          <button className={privacy ? "toolbar-icon active" : "toolbar-icon"} title="隐私模式" aria-label="隐私模式" onClick={() => setPrivacy((value) => !value)}>{privacy ? "◉" : "⊘"}</button>
+          <button className="toolbar-icon" title={t.import} aria-label={t.import} onClick={() => setShowImport(true)}>⇩</button>
+          <button className="toolbar-icon" title="导出筛选结果" aria-label="导出筛选结果" onClick={() => void openExport()} disabled={!filtered.length}>⇧</button>
         </section>
         {selected.size > 0 && <section className="selection-bar"><strong>已选 {selected.size} 个账号</strong><button onClick={() => void refreshMany([...selected])}>刷新选中</button><button onClick={() => void openExport()}>{t.export}</button><button onClick={() => setSelected(new Set())}>取消选择</button></section>}
-        <section className="list-head"><label><input type="checkbox" aria-label="全选当前页" checked={allPageSelected} onChange={() => setSelected((old) => { const next = new Set(old); currentPageIds.forEach((id) => allPageSelected ? next.delete(id) : next.add(id)); return next; })} /> 当前页全选</label><span>{filtered.length} 个结果</span></section>
+        <section className="list-head"><label><input type="checkbox" aria-label="全选当前页" checked={allPageSelected} onChange={() => setSelected((old) => { const next = new Set(old); currentPageIds.forEach((id) => allPageSelected ? next.delete(id) : next.add(id)); return next; })} /> <strong>全选</strong></label><span>{filtered.length} 个账号</span></section>
         {pagination.pageItems.length === 0 ? <div className="empty"><span>◎</span><h2>{t.empty}</h2><p>读取本机账号，或粘贴 Cockpit JSON 批量导入。</p></div> : <div className={`account-${layout}`}>{pagination.pageItems.map((account) => <AccountCard key={account.id} account={account} privacy={privacy} selected={selected.has(account.id)} busy={busy.has(account.id)} onSelect={() => setSelected((old) => { const next = new Set(old); next.has(account.id) ? next.delete(account.id) : next.add(account.id); return next; })} onRefresh={() => void refreshOne(account.id)} onExport={() => void openExport([account.id])} onDelete={() => setDeleteTarget(account.id)} />)}</div>}
         <footer className="pagination"><span>第 {pagination.page} / {pagination.pageCount} 页</span><label>每页 <select aria-label="每页数量" value={pagination.pageSize} onChange={(event) => pagination.setPageSize(Number(event.target.value))}>{PAGE_SIZES.map((size) => <option key={size}>{size}</option>)}</select></label><button disabled={pagination.page === 1} onClick={() => pagination.setPage(pagination.page - 1)}>上一页</button><button disabled={pagination.page === pagination.pageCount} onClick={() => pagination.setPage(pagination.page + 1)}>下一页</button></footer>
       </>}
@@ -113,17 +123,19 @@ export default function App() {
 
 function AccountCard({ account, privacy, selected, busy, onSelect, onRefresh, onExport, onDelete }: { account: CursorAccountView; privacy: boolean; selected: boolean; busy: boolean; onSelect: () => void; onRefresh: () => void; onExport: () => void; onDelete: () => void }) {
   const usage = account.coreUsage; const sand = account.sand;
-  return <article className={`account-card ${selected ? "selected" : ""}`}>
-    <header><input type="checkbox" aria-label={`选择 ${account.email ?? account.id}`} checked={selected} onChange={onSelect}/><div className="avatar">{(account.email ?? "?")[0].toUpperCase()}</div><div className="identity"><strong className={privacy ? "private" : ""}>{account.email ?? "邮箱未知"}</strong><small className={privacy ? "private" : ""}>{account.authId ?? "Auth ID 未知"}</small></div><span className="plan">{account.membershipType ?? "UNKNOWN"}</span></header>
-    <div className="tags">{account.isCurrent && <span className="current">本机当前</span>}{account.tags.slice(0,2).map((tag) => <span key={tag}>{tag}</span>)}{account.tags.length > 2 && <span>+{account.tags.length - 2}</span>}</div>
-    <div className="quota-grid"><Quota label="TOTAL" value={usage?.total}/><Quota label="AUTO + COMPOSER" value={usage?.autoComposer}/><Quota label="API" value={usage?.api}/><Quota label="ON-DEMAND" value={usage?.onDemand}/></div>
-    <div className="sand-row"><span><b>GROK / SAND</b> {percent(sand?.usagePercent)}</span><span>{sand?.accessGranted === true ? "可访问" : sand?.accessGranted === false ? "不可访问" : "状态未知"}</span><span>重置 {date(sand?.nextResetTimestampUtc)}</span></div>
+  return <article className={`account-card ${selected ? "selected" : ""} ${account.isCurrent ? "is-current" : ""}`}>
+    <header><input type="checkbox" aria-label={`选择 ${account.email ?? account.id}`} checked={selected} onChange={onSelect}/><div className="identity"><strong className={privacy ? "private" : ""}>{account.email ?? "邮箱未知"}</strong></div><div className="badges">{account.isCurrent && <span className="badge current">当前</span>}<span className={`badge plan ${planTone(account.membershipType)}`}>{account.membershipType ?? "UNKNOWN"}</span></div></header>
+    <p className={`auth-id ${privacy ? "private" : ""}`}>Auth ID: {account.authId ?? "未知"}</p>
+    <div className="tags">{account.tags.slice(0,2).map((tag) => <span key={tag}>{tag}</span>)}{account.tags.length > 2 && <span>+{account.tags.length - 2}</span>}</div>
+    <div className="quota-stack"><Quota label="Total Usage" value={usage?.total} reset={usage?.billingCycleEnd}/><Quota label="Auto + Composer" value={usage?.autoComposer}/><Quota label="API Usage" value={usage?.api}/><Quota label="按需使用" value={usage?.onDemand}/></div>
+    <div className="sand-row"><span><b>Grok / Sand</b><small>{percent(sand?.usagePercent)}</small></span><span>{sand?.accessGranted === true ? "可访问" : sand?.accessGranted === false ? "不可访问" : "状态未知"}</span><span>{sand?.nextResetTimestampUtc ? date(sand.nextResetTimestampUtc) : "重置未知"}</span></div>
     {(account.lastError || usage?.error) && <p className="account-error">{account.lastError ?? usage?.error}</p>}
-    <footer><span>{usage ? `${usage.source === "live" ? "实时查询" : "导入缓存"} · ${dateTime(usage.updatedAt)}` : "暂无额度数据"}</span><div><button aria-label={`刷新 ${account.email ?? account.id}`} onClick={onRefresh} disabled={busy}>{busy ? "查询中" : "刷新"}</button><button onClick={onExport}>导出</button><button className="danger-link" onClick={onDelete}>删除</button></div></footer>
+    <footer><span>{usage ? `${usage.source === "live" ? "实时查询" : "导入缓存"} · ${dateTime(usage.updatedAt)}` : "暂无额度数据"}</span><div><button title="刷新" aria-label={`刷新 ${account.email ?? account.id}`} onClick={onRefresh} disabled={busy}>{busy ? "…" : "↻"}</button><button title="导出" aria-label="导出" onClick={onExport}>⇧</button><button title="删除" aria-label={`删除 ${account.email ?? account.id}`} className="danger-link" onClick={onDelete}>♜</button></div></footer>
   </article>;
 }
 
-function Quota({ label, value }: { label: string; value?: UsageAmount }) { const p = clamp(value?.percentUsed ?? (value?.used != null && value.limit ? value.used / value.limit * 100 : null)); return <div className="quota"><span>{label}</span><strong>{percent(p)}</strong><div><i style={{ width: `${p ?? 0}%` }}/></div><small>{value?.used == null ? "暂无数据" : `${number(value.used)} / ${value.limit == null ? "—" : number(value.limit)}`}</small></div>; }
+function Quota({ label, value, reset }: { label: string; value?: UsageAmount; reset?: string | null }) { const p = clamp(value?.percentUsed ?? (value?.used != null && value.limit ? value.used / value.limit * 100 : null)); const tone = p != null && p >= 90 ? "danger" : value?.enabled === false || p == null ? "muted" : "good"; return <div className={`quota ${tone}`}><div className="quota-heading"><span>{label}</span><strong>{percent(p)}</strong></div><small>{value?.used == null ? (value?.enabled === false ? "已禁用" : "暂无数据") : `${number(value.used)} / ${value.limit == null ? "—" : number(value.limit)}`}</small>{reset && <small className="quota-reset">重置: {dateTime(new Date(reset).getTime())}</small>}<div className="quota-track"><i style={{ width: `${p ?? 0}%` }}/></div></div>; }
+function planTone(value: string | null) { const normalized = value?.toLocaleLowerCase(); return normalized?.includes("ultra") ? "ultra" : normalized?.includes("pro") ? "pro" : "free"; }
 function Settings({ language, setLanguage, updater }: { language: Language; setLanguage: (value: Language) => void; updater: ReturnType<typeof useAppUpdater> }) { const t = dictionaries[language]; const settings=updater.settings; return <section className="settings-page"><header className="page-head"><div><p>APPLICATION</p><h1>{t.settings}</h1></div></header><div className="settings-tabs"><button className="active">{t.general}</button><button>{t.about}</button></div><div className="settings-card"><label><span><strong>{t.language}</strong><small>界面语言立即生效</small></span><select value={language} onChange={(event) => { const value = event.target.value as Language; localStorage.setItem("cursor-language", value); setLanguage(value); }}><option value="zh-CN">简体中文</option><option value="en">English</option></select></label><label><span><strong>关闭行为</strong><small>默认每次询问最小化到托盘或退出</small></span><select><option>每次询问</option><option>最小化到托盘</option><option>退出</option></select></label><label><span><strong>自动检查更新</strong><small>每小时检查一次；不会刷新 Cursor 额度</small></span><input type="checkbox" checked={settings?.autoCheck??true} onChange={(event)=>settings&&void updater.saveSettings({...settings,autoCheck:event.target.checked})}/></label><label><span><strong>自动安装</strong><small>下载完成后等待你选择重启</small></span><input type="checkbox" checked={settings?.autoInstall??false} onChange={(event)=>settings&&void updater.saveSettings({...settings,autoInstall:event.target.checked})}/></label></div><div className="about-card"><strong>Cursor Usage Viewer</strong><span>v0.1.0 · MIT</span><p>{t.unofficial}</p><button onClick={()=>void updater.checkNow(true)}>检查更新</button></div></section>; }
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) { useEffect(() => { const key = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); }; window.addEventListener("keydown", key); return () => window.removeEventListener("keydown", key); }, [onClose]); return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="modal" role="dialog" aria-modal="true" aria-label={title}><header><h2>{title}</h2><button aria-label="关闭" onClick={onClose}>×</button></header>{children}</section></div>; }
 

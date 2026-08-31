@@ -39,6 +39,8 @@ body:
           required: true
         - label: "[UI_ACCEPTED] I personally ran the exact candidate and accepted the UI, copy, accessibility and both languages."
           required: true
+        - label: "[VISUAL_GATE_ACCEPTED] I reviewed the 1280x800 visual baseline diff and a fresh exact-candidate screenshot; the Cockpit-referenced structure, three-column cards and current-account-first presentation are accepted."
+          required: true
         - label: "[CORE_FUNCTIONS_ACCEPTED] I personally tested import, search/filter/page, one-click refresh, Free/non-JSON behavior, export and deletion."
           required: true
         - label: "[PERSISTENCE_ACCEPTED] I restarted the exact candidate and verified save, merge, recovery and deletion behavior with isolated test data."

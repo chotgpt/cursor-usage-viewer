@@ -155,3 +155,15 @@ Cockpit Tools 只作为固定提交 `a0508ae815e104e931dae515389e680840008367` �
 当前 `v0.1.0` Draft 在用户实际产品验收和本决策落地之前生成，只是历史构建证据，不具备 stable 发布资格。后续界面或功能修改完成后必须使用新候选 tag 重新构建和验收，不得沿用旧 Draft 的自动化结论。
 
 决策依据：用户选择“单人双确认”；GitHub 官方关于 AI 代码需人工审查、受保护 Environment、immutable releases 与 artifact attestations 的文档；NIST SSDF PW.7/PS.3 的人工评审、自动分析和发布完整性原则；Tauri v2 updater 强制签名规范。
+
+## D-016 Cockpit 视觉真源、当前账号置顶与视觉验收门
+
+用户于 2026-08-31 对源码调试版进行人工查看后，明确判定现有“深色精简版”界面不合格，并要求以其提供的 Cockpit Tools Cursor 账号页截图作为 1280×800 桌面端视觉真源，重做整体页面。此决定覆盖 D-012 中“只复用信息层级、继续沿用第 3 套精简视觉”的旧口径，但不改变 clean-room、MIT 与非官方项目边界：本项目独立实现相同的页面结构、空间关系、密度和视觉结果，不复制 Cockpit 源码、CSS、品牌、资源或文案。
+
+固定视觉结构包括：完整高度的深蓝渐变侧栏；顶部展开的蓝色说明面板；单行圆角工具栏；独立的全选条；默认三列高密度纵向账号卡片；卡片中的身份、当前/套餐徽章、Auth ID、标签、Total、Auto + Composer、API、On-Demand、Sand、更新时间和底部操作区。本项目没有的 Cockpit 能力不得用无效按钮伪造，现有读取本机、粘贴导入、刷新、隐私、导出、删除等真实能力映射到相同结构。
+
+用户主动读取本机 Cursor 当前账号后，该账号在全部筛选结果和分页中始终排在第一，其优先级高于邮箱、套餐、最近使用时间及升降序选择；其余账号继续按用户选择的规则排序。启动时仍不得自动读取 Cursor 数据库。
+
+视觉回归使用仓库内固定假账号、固定 Chromium、1280×800 视口、确定字体与禁用动画的 Playwright 截图基线；PR CI 中像素比较失败即阻塞。基线变更必须作为可见代码变更接受审核，不能由失败测试自动覆盖。自动视觉比较只证明基线未漂移，不等于用户人工验收；Release Acceptance Issue 必须记录 owner 对源码调试版和精确候选 tag/SHA 的界面截图人工确认，未确认不得发布 stable。
+
+决策依据：用户本轮提供的当前实现与 Cockpit Tools 参考截图及“整体照抄”“本机当前放第一个”“要加上视觉门验收”的最新明确要求；Cockpit Tools 固定提交 `a0508ae815e104e931dae515389e680840008367` 的 `src/utils/currentAccountSort.ts::compareCurrentAccountFirst` 与 `src/pages/CursorAccountsPage.tsx` 排序调用链；Playwright 官方视觉比较与 CI 文档。

@@ -13,6 +13,7 @@ vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: vi.fn() }));
 vi.mock("@tauri-apps/plugin-updater", () => ({ check: vi.fn() }));
 const mockedInvoke = vi.mocked(invoke);
 let versionChange: { fromVersion: string; toVersion: string; notes: string } | null = null;
+let listedAccounts: CursorAccountView[] = [];
 
 function account(id = "cursor_one", email = "one@example.invalid"): CursorAccountView {
   return { id, email, authId: `auth0|${id}`, name: null, tags: ["500 credits"], membershipType: "pro", subscriptionStatus: "active", signUpType: "Auth_0", status: null, statusReason: null, source: "cockpit-tools", hasAccessToken: true, hasRefreshToken: true, isCurrent: false,
@@ -25,9 +26,10 @@ describe("multi-account workspace", () => {
   beforeEach(() => {
     localStorage.clear();
     versionChange = null;
+    listedAccounts = [account()];
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
     mockedInvoke.mockImplementation(async (command, args) => {
-      if (command === "list_cursor_accounts") return [account()];
+      if (command === "list_cursor_accounts") return listedAccounts;
       if (command === "get_update_settings") return { schemaVersion: 1, autoCheck: false, checkIntervalHours: 1, autoInstall: false, remindOnUpdate: true, lastCheckTime: 0, lastRunVersion: "", skippedVersion: "", pendingNotes: null };
       if (command === "consume_version_change") return versionChange;
       if (command === "refresh_cursor_account") return { ...account(), lastUsed: 3 };
@@ -46,6 +48,20 @@ describe("multi-account workspace", () => {
     expect(commands).not.toContain("load_current_cursor_account");
     expect(commands).not.toContain("refresh_cursor_account");
     expect(document.body.textContent).not.toContain("fake.secret.token");
+  });
+
+  it("keeps the local current account first before applying the selected sort", async () => {
+    listedAccounts = [
+      { ...account("cursor_newest", "zulu@example.invalid"), lastUsed: 30 },
+      { ...account("cursor_current", "middle@example.invalid"), isCurrent: true, lastUsed: 10 },
+      { ...account("cursor_oldest", "alpha@example.invalid"), lastUsed: 1 },
+    ];
+
+    const { container } = render(<App />);
+    await screen.findByText("middle@example.invalid");
+
+    const visibleEmails = [...container.querySelectorAll(".account-card .identity strong")].map((node) => node.textContent);
+    expect(visibleEmails).toEqual(["middle@example.invalid", "zulu@example.invalid", "alpha@example.invalid"]);
   });
 
   it("refreshes on the first click without a confirmation", async () => {
