@@ -137,3 +137,21 @@ Cockpit Tools 只作为固定提交 `a0508ae815e104e931dae515389e680840008367` �
 更新检查访问本项目固定 GitHub Release endpoint，不携带 Cursor 凭据；它是“启动不访问 Cursor”的例外，而不是访问任意网络的授权。详细权衡见 `docs/adr/0002-github-releases-and-signed-updater.md`。
 
 本决策取代 D-011/D-012 中“侧栏不提供设置入口”和“启动绝对不联网”的旧表达：仍然禁止启动或后台访问 Cursor、续期 Token、读取本机数据库或刷新额度；只允许按更新设置访问本项目固定 GitHub updater endpoint。
+
+## D-015 AI 开发与 stable 发布双重人工门禁
+
+用户于 2026-08-31 指出：自动化测试、构建和 Draft 资产通过不等于产品已验收，并要求按严格 AI 开发流程重做发布工作流。此后必须区分以下状态：代码自动化验证通过、候选安装包构建通过、用户人工产品验收通过、stable 获准发布。任何前一状态都不能被表述为后一状态。
+
+采用用户确认的“单人双确认”发布模型：
+
+1. AI/Agent 只能实现、测试、提交 PR、生成 Draft 候选和汇报证据；不得代替仓库 owner 运行产品验收、填写或勾选 Release Acceptance Issue、添加 `release-approved` 标签、关闭验收 Issue、批准 `stable-release` Environment 或发布 stable。
+2. `main` 继续强制 PR、批准和必需检查。最终候选 tag 必须对应 `main` 中已通过 CI 与 CodeQL 的精确提交；tag 或代码变化立即使旧验收失效。
+3. `v*` 只生成签名 Draft。Draft 的平台资产、Tauri 签名、target manifests、`latest.json`、SHA256 和 provenance attestation 全部齐全后，才可开始针对该精确 tag/SHA 的人工验收。
+4. 仓库 owner 必须亲自运行源码和候选包，完成 UI、核心功能、持久化、安全边界、已知问题以及计划 §17.4 的真实隔离 updater E2E，并在专用 Issue 中提供证据、勾完稳定的机器可读验收项、添加 `release-approved` 标签并关闭 Issue。
+5. stable workflow 的预检必须确认不存在打开的 `release-blocker`，并再次绑定 Issue、tag、SHA、required checks、Draft 状态、资产/签名/manifest、实际下载字节 SHA256 和 attestation；输入确认词必须精确为 `PUBLISH <tag>`。
+6. 即使预检通过，发布 job 仍必须等待受保护的 `stable-release` GitHub Environment 第二次人工批准，且禁止管理员绕过；批准后重新执行全部可变状态检查才允许将 Draft 发布。
+7. 未来发布启用 GitHub immutable releases；发布后 tag 和资产不得改写，并由 published smoke 再验证公开更新清单。紧急修复使用新 patch 版本，不覆盖已发布资产。
+
+当前 `v0.1.0` Draft 在用户实际产品验收和本决策落地之前生成，只是历史构建证据，不具备 stable 发布资格。后续界面或功能修改完成后必须使用新候选 tag 重新构建和验收，不得沿用旧 Draft 的自动化结论。
+
+决策依据：用户选择“单人双确认”；GitHub 官方关于 AI 代码需人工审查、受保护 Environment、immutable releases 与 artifact attestations 的文档；NIST SSDF PW.7/PS.3 的人工评审、自动分析和发布完整性原则；Tauri v2 updater 强制签名规范。

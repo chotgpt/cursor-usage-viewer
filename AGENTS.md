@@ -19,3 +19,11 @@
 - 外部响应字段、单位、周期或认证细节没有权威证据时必须保持“未知”，不得通过端点名猜测。
 - 网络测试使用 mock；fixture 必须脱敏且不得来自未经检查的真实响应。
 - 新增敏感数据流、端点或权限前，先更新 `docs/DECISIONS.md` 并取得用户确认。
+
+## AI 开发与发布边界
+
+- 自动化测试、CI、CodeQL、构建、签名、Draft、attestation 通过只证明对应技术门禁通过，不得声称用户已经验收产品或 stable 已具备发布资格。
+- Agent 不得代替仓库 owner 创建、填写、修改、勾选、加标签或关闭 Release Acceptance Issue；不得批准或绕过 `stable-release` Environment；不得直接在 GitHub UI/API/CLI 发布 stable。
+- 稳定版只能经 `.github/workflows/publish-stable.yml` 发布。必须满足 `docs/DECISIONS.md` §D-015 和 `docs/RELEASING.md` 的精确 tag/SHA、人工验收、required checks、Draft 完整性、SHA256、attestation 与双重人工确认门禁。
+- 用户说“构建通过”“转公开”“生成 Draft”或“看起来没问题”均不等于授权发布 stable。stable 授权只对 Release Acceptance Issue 中记录的精确 tag/SHA 有效；任何代码、tag 或资产变化都会使授权失效。
+- 人工验收未完成时，只能报告未完成项和提供测试方法；禁止用 mock、单测、截图、打包成功或 Agent 自测冒充用户产品验收和计划 §17.4 的真实多平台安装/更新 E2E。

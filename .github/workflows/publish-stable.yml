@@ -1,0 +1,136 @@
+name: Publish stable release
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Exact verified v* Draft tag
+        required: true
+        type: string
+      acceptance_issue:
+        description: Closed owner-authored Release Acceptance issue number
+        required: true
+        type: number
+      confirmation:
+        description: Type PUBLISH followed by a space and the exact tag
+        required: true
+        type: string
+
+concurrency:
+  group: stable-release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  checks: read
+  issues: read
+  attestations: read
+
+jobs:
+  verify-candidate:
+    runs-on: ubuntu-22.04
+    outputs:
+      tag_sha: ${{ steps.identity.outputs.tag_sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: 22, cache: npm }
+      - id: identity
+        name: Bind candidate to main and exact tag
+        env: { TAG: "${{ inputs.tag }}" }
+        shell: bash
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          TAG_SHA=$(git rev-parse "$TAG^{commit}")
+          git fetch origin main --no-tags
+          git merge-base --is-ancestor "$TAG_SHA" origin/main
+          test "$(node -p "'v'+require('./package.json').version")" = "$TAG"
+          echo "tag_sha=$TAG_SHA" >> "$GITHUB_OUTPUT"
+      - run: npm ci
+      - name: Verify required checks on candidate commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_SHA: ${{ steps.identity.outputs.tag_sha }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/commits/$TAG_SHA/check-runs?per_page=100" --jq .check_runs > checks.json
+          node scripts/release/verify-required-checks.mjs --checks-json checks.json
+          gh issue list --state open --label release-blocker --limit 100 --json number,title > blockers.json
+          node scripts/release/verify-no-blockers.mjs --issues-json blockers.json
+      - name: Download and verify exact Draft candidate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+          TAG_SHA: ${{ steps.identity.outputs.tag_sha }}
+          ISSUE: ${{ inputs.acceptance_issue }}
+          RELEASE_CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          gh release view "$TAG" --json isDraft,isPrerelease,tagName,targetCommitish,assets > release.json
+          gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE" > issue.json
+          mkdir assets
+          gh release download "$TAG" --dir assets
+          node scripts/release/verify-release-candidate.mjs \
+            --release-json release.json --issue-json issue.json --assets-dir assets \
+            --repo "$GITHUB_REPOSITORY" --tag "$TAG" --tag-sha "$TAG_SHA"
+          gh attestation verify assets/* --repo "$GITHUB_REPOSITORY"
+
+  publish:
+    needs: verify-candidate
+    runs-on: ubuntu-22.04
+    environment:
+      name: stable-release
+      url: https://github.com/${{ github.repository }}/releases/tag/${{ inputs.tag }}
+    permissions:
+      contents: write
+      checks: read
+      issues: read
+      attestations: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: 22, cache: npm }
+      - name: Re-bind checked out tag before running repository scripts
+        env:
+          TAG: ${{ inputs.tag }}
+          TAG_SHA: ${{ needs.verify-candidate.outputs.tag_sha }}
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test "$(git rev-parse "$TAG^{commit}")" = "$TAG_SHA"
+      - run: npm ci
+      - name: Re-verify candidate after protected environment approval
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+          TAG_SHA: ${{ needs.verify-candidate.outputs.tag_sha }}
+          ISSUE: ${{ inputs.acceptance_issue }}
+          RELEASE_CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/commits/$TAG_SHA/check-runs?per_page=100" --jq .check_runs > checks.json
+          node scripts/release/verify-required-checks.mjs --checks-json checks.json
+          gh issue list --state open --label release-blocker --limit 100 --json number,title > blockers.json
+          node scripts/release/verify-no-blockers.mjs --issues-json blockers.json
+          gh release view "$TAG" --json isDraft,isPrerelease,tagName,targetCommitish,assets > release.json
+          gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE" > issue.json
+          mkdir assets
+          gh release download "$TAG" --dir assets
+          node scripts/release/verify-release-candidate.mjs \
+            --release-json release.json --issue-json issue.json --assets-dir assets \
+            --repo "$GITHUB_REPOSITORY" --tag "$TAG" --tag-sha "$TAG_SHA"
+          gh attestation verify assets/* --repo "$GITHUB_REPOSITORY"
+      - name: Publish the already verified immutable stable release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          gh release edit "$TAG" --draft=false --prerelease=false --latest --verify-tag
+          test "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = "false"
+          for attempt in 1 2 3 4 5; do
+            gh release verify "$TAG" --repo "$GITHUB_REPOSITORY" && exit 0
+            sleep 6
+          done
+          echo "Immutable release attestation did not verify after publication." >&2
+          exit 1
