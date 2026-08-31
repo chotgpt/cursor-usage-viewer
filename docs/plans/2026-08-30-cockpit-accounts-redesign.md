@@ -1,4 +1,4 @@
-# Cursor Usage Viewer：Cockpit 风格多账号、三平台更新与 GitHub 开源发布实施计划
+# Cursor Usage Viewer：Cockpit 派生多账号界面、三平台更新与 GitHub 公开源码发布实施计划
 
 状态：**最终封板，待新窗口实施**  
 日期：2026-08-30  
@@ -7,7 +7,7 @@ Cockpit 研究基线：`jlcodes99/cockpit-tools@a0508ae815e104e931dae515389e6808
 
 ## 1. 目标、模式与权威读取顺序
 
-把当前 Windows 单账号额度页升级为只服务 Cursor 的三平台开源桌面应用：深色高密度账号页；多账号明文持久化；Cockpit JSON 粘贴导入和完整导出；用户主动触发的 Cursor 账号读取与额度刷新；Windows、macOS、Linux 同时发布；Cockpit 同等的检查、下载、跳过、重试、安装、重启和更新后说明；以及 GitHub 仓库创建、治理、CI、三平台构建、Draft Release、更新清单和公开发布全流程。
+把当前 Windows 单账号额度页升级为只服务 Cursor 的三平台非商业公开源码桌面应用：从 Cockpit 固定提交定向移植经典侧栏、Cursor 账号页、共享账号控件及深浅主题；多账号明文持久化；Cockpit JSON 粘贴导入和完整导出；用户主动触发的 Cursor 账号读取与额度刷新；Windows、macOS、Linux 同时发布；Cockpit 同等的检查、下载、跳过、重试、安装、重启和更新后说明；以及 GitHub 仓库创建、治理、CI、三平台构建、Draft Release、更新清单和公开发布全流程。
 
 这是计划封板，不是代码已完成声明。新窗口 Agent 先读仓库规则，再按以下顺序解决语义冲突：
 
@@ -28,7 +28,7 @@ Cockpit 研究基线：`jlcodes99/cockpit-tools@a0508ae815e104e931dae515389e6808
 - 产品长期只做 Cursor，不抽象成多 Provider。
 - 英文名 `Cursor Usage Viewer`；中文名/副标题 `Cursor 额度查看器`。
 - GitHub 仓库名 `cursor-usage-viewer`，归属用户个人 GitHub 账号。
-- MIT 许可证。
+- 整体采用 CC BY-NC-SA 4.0；必须署名、标记修改、仅限非商业使用，并以相同方式共享。对外称“公开源码/非商业源码项目”，不宣称为 OSI 意义上的开源软件。
 - 使用原创中性“额度/光标”图标；不得使用 Cursor 官方 Logo。
 - README、About 页和 Release 标注：本项目为非官方社区工具，与 Cursor/Anysphere 无隶属或背书关系。
 - 首版界面维护简体中文和英文；README、更新说明与安全说明有中英入口。其他语言由社区后续贡献。
@@ -53,15 +53,16 @@ Cockpit 研究基线：`jlcodes99/cockpit-tools@a0508ae815e104e931dae515389e6808
 
 用户已明确“Cockpit 有明确做法的相关功能照其行为与结构实现”。账号页、导入导出、分页、关闭到托盘、设置分层和更新状态机以固定提交为行为真源，不再作为开放产品问题。
 
-明确不复制：
+Cockpit UI 的允许复用范围由 D-017 限定：
 
-- Cockpit 源码、workflow、CSS、图标、品牌、文案或可识别表达；
+- 允许从固定提交直接移植经典侧栏、Cursor 账号页、共享账号组件、设置页深浅主题 token 与相关 CSS；每个派生文件必须在 `docs/UPSTREAM_COCKPIT_UI.md` 记录上游原路径、固定 SHA 和修改内容；
+- 不复制 Cockpit workflow、品牌、Logo、商标资源或与允许 UI 范围无关的源码、CSS、资源和文案；
 - 与本工具无关的 Provider、切号、注入、多开、OAuth、API 中转、远程配置、公告和额度后台刷新；
 - 已确认的安全缺陷，例如删除账号后遗留含 Token 的 `.json.bak`、日志写入邮箱；
 - Homebrew Cask、winget、应用商店等 GitHub Releases 之外的分发；
 - 任意 URL、任意命令或任意文件访问。
 
-## 3. Cockpit 本地源码基准与 clean-room 边界
+## 3. Cockpit 本地源码基准、派生溯源与复用边界
 
 只读参考副本位于当前仓库同级目录 `../cockpit-tools-reference`，HEAD 必须是：
 
@@ -75,7 +76,7 @@ a0508ae815e104e931dae515389e680840008367
 https://github.com/jlcodes99/cockpit-tools/blob/a0508ae815e104e931dae515389e680840008367/
 ```
 
-Cockpit README 声明默认采用 CC BY-NC-SA 4.0，但仓库没有标准 `LICENSE` 文件且 GitHub 未识别许可证。本项目必须 clean-room：只记录输入、输出、状态、交互结果和调用顺序后独立实现；不得复制源码、样式或 workflow 文本。README 的 Credits/References 记录上游仓库和固定 SHA。
+Cockpit 固定提交通过 `src-tauri/Cargo.toml:6` 和 README 声明 CC BY-NC-SA 4.0。本项目按相同许可证定向移植上述 UI 范围，并在 README、`THIRD_PARTY_NOTICES.md` 与 `docs/UPSTREAM_COCKPIT_UI.md` 保留署名、固定 SHA、原文件路径和修改记录。后端、持久化、安全边界、updater 与 release workflow 继续使用本项目现有实现，不复制 Cockpit workflow。详见 `docs/DECISIONS.md` §D-017。
 
 ### 3.1 账号与额度参考索引
 
@@ -243,9 +244,9 @@ Linux:   ~/.config/Cursor/User/globalStorage/state.vscdb
 ### 8.1 壳层与 Cursor 页
 
 - 窗口 1280×800，最小 900×600，居中、可缩放。
-- 深色窄侧栏：原创品牌；`Cursor` 主入口；底部 `设置` 和版本/更新状态。
+- 直接移植 Cockpit 经典侧栏的尺寸、间距、深浅主题和组件形态；替换为本项目原创中性品牌，只保留 `Cursor` 主入口以及底部 `设置`、版本/更新状态。
 - 主区域只有 `Cursor` 与 `设置`，用页面枚举，不引路由库。
-- Cursor 页按用户 2026-08-31 提供的 Cockpit 参考截图复刻整体结构、空间关系、密度和视觉结果，同时保持 clean-room：不得复制源码、CSS、品牌、资源或文案；详见 `docs/DECISIONS.md` §D-016。
+- Cursor 页直接从固定提交的 `src/pages/CursorAccountsPage.tsx`、`src/styles/pages/github-copilot.css` 及其必需共享样式定向移植 JSX 结构与 CSS；删除其他 Provider 和无真实能力入口，接入现有 Cursor view model，并在 Cockpit 四组额度后增加 Grok/Sand 第五组。不得继续维护一套独立手写的近似界面；详见 `docs/DECISIONS.md` §D-017。
 - 顶部可折叠说明：本地明文、Token 不上传、用户主动查询；展开状态本地保存。
 - 工具栏：搜索、网格/列表、套餐筛选、标签筛选/分组、排序、升降序、读取本机、粘贴导入、刷新全部、隐私模式、导出。
 - 不显示 OAuth `+`、切号/注入/播放按钮或无关快捷设置。
@@ -371,13 +372,13 @@ https://github.com/<owner>/cursor-usage-viewer/releases/latest/download/latest.j
 - Linux 两架构 AppImage/deb/rpm 启动并识别类型；README 写依赖。
 - 每个平台做一次“旧测试版 → 隔离更新源 → 新测试版”的真实安装包升级，只用假账号和隔离数据目录。
 
-## 12. GitHub 开源仓库完整流程
+## 12. GitHub 公开源码仓库完整流程
 
 ### 12.1 公开前文件
 
-新增：MIT `LICENSE`、双语 README、`SECURITY.md`、`CONTRIBUTING.md`、`CODE_OF_CONDUCT.md`、双语 CHANGELOG、`THIRD_PARTY_NOTICES.md`、Issue/PR templates、Dependabot、CI、CodeQL、Release 和发布后 smoke workflows。
+新增：CC BY-NC-SA 4.0 `LICENSE`、双语 README、`SECURITY.md`、`CONTRIBUTING.md`、`CODE_OF_CONDUCT.md`、双语 CHANGELOG、`THIRD_PARTY_NOTICES.md`、`docs/UPSTREAM_COCKPIT_UI.md`、Issue/PR templates、Dependabot、CI、CodeQL、Release 和发布后 smoke workflows。
 
-README 至少含截图、平台下载表、安装警告、数据目录、明文 Token、网络端点、更新默认值、Cockpit clean-room Credits、非官方声明和贡献入口。
+README 至少含截图、平台下载表、安装警告、数据目录、明文 Token、网络端点、更新默认值、Cockpit 派生来源与固定 SHA、CC BY-NC-SA 非商业/署名/相同方式共享口径、非官方声明和贡献入口。
 
 ### 12.2 清密 gate
 
@@ -387,7 +388,7 @@ README 至少含截图、平台下载表、安装警告、数据目录、明文 
 2. fixture 只能用明确不可用的假 JWT/邮箱；
 3. `.gitignore` 增加 env、账号导出、更新私钥、证书、签名临时目录、真实响应和本地 app data；
 4. 若历史泄密，停止公开；历史重写须单独获批，不能擅自 reset/clean；
-5. `THIRD_PARTY_NOTICES.md` 只记录行为参考和固定 SHA，不暗示复制源码。
+5. `THIRD_PARTY_NOTICES.md` 和 `docs/UPSTREAM_COCKPIT_UI.md` 记录派生来源、固定 SHA、逐文件原路径及修改；不得暗示上游作者为本项目背书。
 
 ### 12.3 创建与配置顺序
 
@@ -475,7 +476,7 @@ README 至少含截图、平台下载表、安装警告、数据目录、明文 
 6. **设置/托盘/生命周期**：单实例、托盘、关闭、autostart、窗口状态。提交 `feat: add cockpit style desktop lifecycle`。
 7. **updater/Linux**：官方插件、设置、targets、UI、重试/取消、版本变化、deb/rpm 安装。提交 `feat: add signed cross platform updates`。
 8. **打包/版本/品牌**：bundle、identifier、图标、同步、三平台 smoke。提交 `build: enable cross platform bundles`。
-9. **开源与 CI/CD**：许可证、双语文档、贡献/安全、scripts、workflows。提交 `ci: add guarded multi platform releases`。
+9. **公开源码与 CI/CD**：CC BY-NC-SA 许可一致性、派生溯源、双语文档、贡献/安全、scripts、workflows。提交 `ci: add guarded multi platform releases`。
 10. **私有演练/公开**：清密、private repo、rules/secrets/security、Draft `v0.1.0`、验收，报告精确目标后再公开和发布。此阶段含外部写操作。
 
 ## 17. 验证矩阵
@@ -530,12 +531,12 @@ Release scripts 必须有 Node 单元测试。
 - 简中/英文完整；原创图标与非官方声明清楚。
 - 三平台资产、签名、target manifests、`latest.json`、SHA256、attestation 齐全。
 - tag 只生成 Draft；任一平台失败不能发布；用户人工发布。
-- repo 公开前通过工作树和完整历史清密；MIT、贡献、安全和治理文件齐全。
+- repo 公开前通过工作树和完整历史清密；CC BY-NC-SA 4.0、Cockpit 派生溯源、贡献、安全和治理文件齐全。
 - `v0.1.0` 公开后 updater latest URL 可用，旧测试版可升级。
 - 所有证据来自假账号、临时目录、mock Cursor 和隔离 updater，不控制用户真实应用。
 
 ## 19. 新窗口反查结论
 
-只持有“当前仓库 + 本计划”的新 Agent 已可确定：复用模块；Cockpit 固定 SHA、具体文件/符号/行为；必须复刻与禁止复制的边界；账号、刷新、UI、分页、托盘、i18n、updater 语义；三平台安装包/签名/清单；GitHub private→public、Draft→stable 的顺序；测试、清密和权限 gate。
+只持有“当前仓库 + 本计划”的新 Agent 已可确定：复用模块；Cockpit 固定 SHA、允许直接移植的 UI 文件/符号/CSS 与逐文件溯源要求；不得引入的 Provider、品牌、资源和 workflow 边界；账号、刷新、UI、分页、托盘、i18n、updater 语义；三平台安装包/签名/清单；GitHub private→public、Draft→stable 的顺序；测试、清密和权限 gate。
 
 正常编码细节按工程和官方 Tauri/GitHub 文档处理，无需重新做重大产品决策。唯一允许的实施中阻塞是缺少 GitHub 登录/owner、外部公开或发布授权、签名私钥材料，或权威材料出现新冲突。

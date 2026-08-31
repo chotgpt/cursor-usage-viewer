@@ -23,11 +23,12 @@ Cursor Usage Viewer（Cursor 额度查看器）是一个面向 Windows、macOS�
 - **草稿发布**：已经汇集构建产物但尚未向普通用户公开、也不会被稳定通道发现的待验收版本。
 - **系统托盘**：主窗口关闭后仍可承载应用进程和应用更新检查的桌面入口；它不代表允许后台刷新 Cursor 额度。
 - **非官方项目**：由社区独立维护、未获得 Cursor/Anysphere 隶属或背书的项目身份。
+- **Cockpit 派生 UI**：从固定 Cockpit Tools 提交定向移植的 Cursor 页面、共享组件、经典侧栏与深浅主题；遵循 CC BY-NC-SA 4.0，保留署名和修改记录，不引入其他 Provider。
 
 ## 已确认产品边界
 
 - 主页面采用 Cockpit Tools Cursor 账号页的信息结构：Cockpit 风格的单页外壳、单行工具栏、全选/批量操作区、自适应高密度卡片网格；不再保留旧的“概览 / 账号 / 安全”三页结构。
-- 视觉以用户 2026-08-31 提供的 Cockpit Cursor 账号页截图为 1280×800 桌面端真源，独立复刻其整体结构、空间关系、密度和视觉结果；不复制其代码、CSS、品牌、资源或文案，详见 `docs/DECISIONS.md` §D-016。
+- 视觉直接定向移植 Cockpit 固定提交的经典侧栏、Cursor 页面、深浅主题、共享组件和相关 CSS；只做 Cursor-only 数据适配和 Grok/Sand 第五额度扩展，详见 `docs/DECISIONS.md` §D-017。
 - 侧栏保留品牌、Cursor 主入口和底部设置入口；工具栏不显示 OAuth 添加“+”、切号、注入或与本项目无关的平台能力。
 - 主窗口照抄 Cockpit Tools 的 1280×800 默认尺寸、900×600 最小尺寸、居中和可缩放配置。
 - 卡片网格照抄 `repeat(auto-fill, minmax(320px, 1fr))`；可用宽度足够时形成三列，窗口变窄时自动降列，账号较多时允许滚动并沿用 Cockpit 的分页结构。
@@ -40,6 +41,7 @@ Cursor Usage Viewer（Cursor 额度查看器）是一个面向 Windows、macOS�
 - Windows、macOS、Linux 同时属于首发平台；应用只维护稳定更新通道。
 - 产品长期只服务 Cursor，不以未来多 Provider 为由提前扩张领域模型。
 - 界面首版维护简体中文和英文；公开身份、图标和文案不得暗示官方关联。
+- 项目整体改用 CC BY-NC-SA 4.0，仅允许非商业使用；发布时必须署名、标记修改并以相同方式共享。
 
 ## 本地持久化模型
 

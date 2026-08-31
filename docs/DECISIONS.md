@@ -167,3 +167,18 @@ Cockpit Tools 只作为固定提交 `a0508ae815e104e931dae515389e680840008367` �
 视觉回归使用仓库内固定假账号、固定 Chromium、1280×800 视口、确定字体与禁用动画的 Playwright 截图基线；PR CI 中像素比较失败即阻塞。基线变更必须作为可见代码变更接受审核，不能由失败测试自动覆盖。自动视觉比较只证明基线未漂移，不等于用户人工验收；Release Acceptance Issue 必须记录 owner 对源码调试版和精确候选 tag/SHA 的界面截图人工确认，未确认不得发布 stable。
 
 决策依据：用户本轮提供的当前实现与 Cockpit Tools 参考截图及“整体照抄”“本机当前放第一个”“要加上视觉门验收”的最新明确要求；Cockpit Tools 固定提交 `a0508ae815e104e931dae515389e680840008367` 的 `src/utils/currentAccountSort.ts::compareCurrentAccountFirst` 与 `src/pages/CursorAccountsPage.tsx` 排序调用链；Playwright 官方视觉比较与 CI 文档。
+
+## D-017 CC BY-NC-SA 派生许可与 Cockpit UI 定向移植
+
+用户于 2026-08-31 在获知 Cockpit Tools 固定参考提交的许可证据后，明确决定把本项目从 MIT 改为 **Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International（CC BY-NC-SA 4.0）**，并选择“定向移植 UI”而非整仓 fork。此决定取代 D-007、D-013、D-016 及 `AGENTS.md` 中禁止复制 Cockpit 源码/CSS 的 clean-room 限制；安全、隐私、非官方身份、Cursor-only 产品范围和 stable 双重人工发布门继续有效。
+
+派生实现边界如下：
+
+1. 直接复用 Cockpit Tools 固定提交 `a0508ae815e104e931dae515389e680840008367` 中与经典侧栏、Cursor 账号页、共享账号组件、设置页深浅主题、主题 token 和相关 CSS 有关的代码；保留上游作者、仓库、固定提交、原文件路径、许可与修改说明。
+2. 不整仓 fork，不引入或保留其他 Provider、API 中转站、sidecar、OAuth 多平台入口、无关页面、权限或命令。产品外壳只显示 Cursor 与设置。
+3. 当前仓库已经验证的 Cursor 本地读取、Cockpit JSON 导入、持久化、刷新、导出、删除、updater 和严格发布流程继续作为实现基础；派生 UI 通过适配层调用这些能力，不重新引入 Cockpit 的后端和发布系统。
+4. UI 的深色与浅色模式、尺寸、间距、信息层级、组件形态和主题切换行为以固定 Cockpit 实现为源；Grok/Sand 是在 Cockpit 四组核心额度之外增加的第五组额度，其余无对应真实能力的按钮和入口删除。
+5. 本项目及派生分发仅允许非商业使用，必须署名并以相同许可共享。根 `LICENSE`、包元数据、README、应用关于页、发行说明和第三方声明必须一致，不得继续宣称 MIT；专利和商标权不因该许可授予。
+6. 视觉门至少覆盖 1280×800 的深色和浅色固定假数据基线、当前账号第一、三列卡片和 Grok/Sand 第五额度；自动基线通过不替代用户对精确候选版本的人工视觉验收。
+
+决策依据：用户对四个产品问题的最终回答；Cockpit Tools 固定提交的 `src-tauri/Cargo.toml:6`（`license = "CC-BY-NC-SA-4.0"`）与 `README.md` 许可证章节；CC BY-NC-SA 4.0 官方法律文本关于非商业、署名和相同方式共享的条款；本地代码面调查显示整仓包含大量与 Cursor-only 产品无关的页面、服务、命令和 sidecar。

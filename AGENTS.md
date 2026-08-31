@@ -7,7 +7,7 @@
 ## Clean-room 与隐私
 
 - 不复制或改写 Sirocco 的源码、资源、界面、品牌或文案；只可使用项目决策记录中列出的行为事实。
-- Cockpit Tools 仅作为固定版本的行为与信息结构参考；不得复制其源码、CSS、资源、品牌或文案。目标界面按 `docs/DECISIONS.md` §D-016 的用户截图视觉真源独立实现。
+- Cockpit Tools UI 按 `docs/DECISIONS.md` §D-017 作为 CC BY-NC-SA 4.0 派生代码定向移植：只复用固定提交中 Cursor 页面、共享账号组件、经典侧栏、深浅主题与相关 CSS；必须记录来源、固定提交、原文件路径和修改，不得引入其他 Provider、sidecar、无关权限或品牌资源。
 - 不自动读取 Cursor 数据，不在启动时联网。读取账号和查询额度都必须由用户在界面中主动触发。
 - 按用户确认的 Cockpit 兼容持久化方案，Access Token 与 Refresh Token 可写入应用数据目录的账号明细及 `.bak`；普通列表/刷新 DTO、日志和错误不得包含 Token。只有用户主动粘贴导入或主动预览/复制/保存完整导出时，完整凭据才可进入前端。
 - 生产网络请求只能访问 `docs/DECISIONS.md` §D-012 列出的 Cursor 第一方精确 HTTPS 端点；禁止重定向、任意 URL、遥测和远程日志。
