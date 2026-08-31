@@ -1,10 +1,10 @@
 # Cursor 额度查看器领域上下文
 
-更新时间：2026-08-30
+更新时间：2026-08-31
 
 ## 产品目标
 
-Cursor Usage Viewer（Cursor 额度查看器）是一个面向 Windows、macOS、Linux 的非官方开源桌面工具，用于管理多个 Cursor 账号，并由用户主动查询、集中展示各账号的额度数据。
+Cursor Usage Viewer（Cursor 额度查看器）是一个面向 Windows、macOS、Linux 的非官方、非商业公开源码桌面工具，用于管理多个 Cursor 账号，并由用户主动查询、集中展示各账号的额度数据。
 
 ## 核心术语
 

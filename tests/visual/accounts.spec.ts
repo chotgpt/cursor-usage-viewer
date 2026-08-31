@@ -123,10 +123,24 @@ test.beforeEach(async ({ page }) => {
   }, accounts);
 });
 
-test("Cursor accounts desktop visual contract", async ({ page }) => {
+test("Cursor accounts dark desktop visual contract", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("cursor-theme", "dark"));
   await page.goto("/");
   await expect(page.getByText("local.current@example.invalid")).toBeVisible();
-  await expect(page.locator(".account-card")).toHaveCount(3);
-  await expect(page.locator(".account-card").first()).toContainText("local.current@example.invalid");
-  await expect(page).toHaveScreenshot("cursor-accounts.png", { fullPage: false });
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await expect(page.locator(".ghcp-account-card")).toHaveCount(3);
+  await expect(page.locator(".ghcp-account-card").first()).toContainText("local.current@example.invalid");
+  await expect(page.locator(".ghcp-account-card").first().locator(".quota-item")).toHaveCount(5);
+  await expect(page).toHaveScreenshot("cursor-accounts-dark.png", { fullPage: false });
+});
+
+test("Cursor accounts light desktop visual contract", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("cursor-theme", "light"));
+  await page.goto("/");
+  await expect(page.getByText("local.current@example.invalid")).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await expect(page.locator(".ghcp-account-card")).toHaveCount(3);
+  await expect(page.locator(".ghcp-account-card").first()).toContainText("local.current@example.invalid");
+  await expect(page.locator(".ghcp-account-card").first().locator(".quota-item")).toHaveCount(5);
+  await expect(page).toHaveScreenshot("cursor-accounts-light.png", { fullPage: false });
 });

@@ -1,8 +1,8 @@
 # Cursor Usage Viewer / Cursor 额度查看器
 
-An unofficial, open-source desktop workspace for viewing and managing Cursor account usage on Windows, macOS and Linux. It is not affiliated with or endorsed by Cursor or Anysphere.
+An unofficial, non-commercial source-available desktop workspace for viewing and managing Cursor account usage on Windows, macOS and Linux. It is not affiliated with or endorsed by Cursor or Anysphere.
 
-一个非官方开源桌面工具，用于在 Windows、macOS 和 Linux 管理多个 Cursor 账号并查看额度；与 Cursor / Anysphere 无隶属或背书关系。
+一个非官方、非商业的公开源码桌面工具，用于在 Windows、macOS 和 Linux 管理多个 Cursor 账号并查看额度；与 Cursor / Anysphere 无隶属或背书关系。
 
 ## Features / 功能
 
@@ -12,6 +12,16 @@ An unofficial, open-source desktop workspace for viewing and managing Cursor acc
 - Signed stable updates with a Draft-first three-platform release process.
 - 高密度额度卡、多账号粘贴导入、存盘恢复、筛选分页和完整敏感导出。
 - 仅在用户点击后读取本机 Cursor 或查询额度；不后台刷新额度。
+
+## Screenshots / 截图
+
+Dark / 深色：
+
+![Cursor accounts dark theme](tests/visual/accounts.spec.ts-snapshots/cursor-accounts-dark-chromium-win32.png)
+
+Light / 浅色：
+
+![Cursor accounts light theme](tests/visual/accounts.spec.ts-snapshots/cursor-accounts-light-chromium-win32.png)
 
 ## Security / 安全
 

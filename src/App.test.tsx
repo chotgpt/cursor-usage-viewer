@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
@@ -25,6 +25,7 @@ function account(id = "cursor_one", email = "one@example.invalid"): CursorAccoun
 describe("multi-account workspace", () => {
   beforeEach(() => {
     localStorage.clear();
+    document.documentElement.removeAttribute("data-theme");
     versionChange = null;
     listedAccounts = [account()];
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
@@ -38,7 +39,7 @@ describe("multi-account workspace", () => {
       throw new Error(`unexpected command ${command} ${JSON.stringify(args)}`);
     });
   });
-  afterEach(() => { Reflect.deleteProperty(window, "__TAURI_INTERNALS__"); mockedInvoke.mockReset(); });
+  afterEach(() => { Reflect.deleteProperty(window, "__TAURI_INTERNALS__"); Reflect.deleteProperty(window, "matchMedia"); mockedInvoke.mockReset(); });
 
   it("restores local accounts on startup without reading or refreshing Cursor", async () => {
     render(<App />);
@@ -62,6 +63,17 @@ describe("multi-account workspace", () => {
 
     const visibleEmails = [...container.querySelectorAll(".account-card .identity strong")].map((node) => node.textContent);
     expect(visibleEmails).toEqual(["middle@example.invalid", "zulu@example.invalid", "alpha@example.invalid"]);
+  });
+
+  it("renders the Cockpit-derived classic shell and five quota groups", async () => {
+    const { container } = render(<App />);
+    await screen.findByText("one@example.invalid");
+
+    expect(container.querySelector(".side-nav.side-nav-classic")).toBeInTheDocument();
+    expect(container.querySelector(".ghcp-accounts-page.cursor-accounts-page")).toBeInTheDocument();
+    expect(container.querySelector(".ghcp-account-card")).toBeInTheDocument();
+    expect(container.querySelectorAll(".ghcp-account-card .quota-item")).toHaveLength(5);
+    expect(screen.getByText("Grok / Sand")).toBeVisible();
   });
 
   it("refreshes on the first click without a confirmation", async () => {
@@ -91,6 +103,40 @@ describe("multi-account workspace", () => {
     const dialog = await screen.findByRole("dialog", { name: "完整账号 JSON" });
     expect(dialog).toHaveTextContent("••••••••");
     expect(dialog).not.toHaveTextContent("fake.secret.token");
+  });
+
+  it("applies and persists the selected color theme", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByText("one@example.invalid");
+
+    await user.click(screen.getByRole("button", { name: /设置$/ }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "主题" }), "dark");
+
+    expect(document.documentElement).toHaveAttribute("data-theme", "dark");
+    expect(localStorage.getItem("cursor-theme")).toBe("dark");
+  });
+
+  it("tracks operating-system color changes while using the system theme", async () => {
+    let prefersDark = false;
+    let onChange: (() => void) | undefined;
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({
+        get matches() { return prefersDark; },
+        addEventListener: (_type: string, listener: () => void) => { onChange = listener; },
+        removeEventListener: vi.fn(),
+      })),
+    });
+    localStorage.setItem("cursor-theme", "system");
+
+    render(<App />);
+    await screen.findByText("one@example.invalid");
+    expect(document.documentElement).toHaveAttribute("data-theme", "light");
+
+    prefersDark = true;
+    act(() => onChange?.());
+    expect(document.documentElement).toHaveAttribute("data-theme", "dark");
   });
 
   it("shows the saved release notes once after an upgrade", async () => {

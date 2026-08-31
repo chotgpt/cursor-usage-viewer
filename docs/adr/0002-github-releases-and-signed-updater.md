@@ -1,13 +1,13 @@
 # ADR-0002：采用 GitHub Releases 与 Tauri 签名更新实现三平台发布
 
-- 状态：已接受
+- 状态：已接受（许可证与 UI 来源边界由 `docs/DECISIONS.md` §D-017 修订）
 - 日期：2026-08-30
 
 ## 背景
 
-项目准备以 MIT 许可证在 GitHub 开源，并要求 Windows、macOS、Linux 同时首发。应用需要完整参考 Cockpit Tools 的更新体验：自动与手动检查、跳过、提醒、下载进度、取消、重试、安装、重启和更新后说明。
+项目最初准备以 MIT 许可证在 GitHub 开源，并要求 Windows、macOS、Linux 同时首发；2026-08-31 已按 D-017 改为 CC BY-NC-SA 4.0 非商业公开源码项目。应用需要完整参考 Cockpit Tools 的更新体验：自动与手动检查、跳过、提醒、下载进度、取消、重试、安装、重启和更新后说明。
 
-候选方案包括：只提供手动下载、使用自建更新服务器、使用 GitHub Releases + Tauri updater，以及直接复制 Cockpit 的发布代码。只提供手动下载不能满足产品需求；自建服务器增加运维和隐私边界；复制 Cockpit 源码/workflow 与其 README 声明的 CC BY-NC-SA 4.0 约束冲突。GitHub Releases 与 Tauri updater 能使用公开发布资产、签名校验和固定更新元数据，同时保持项目独立实现。
+候选方案包括：只提供手动下载、使用自建更新服务器、使用 GitHub Releases + Tauri updater，以及直接复制 Cockpit 的发布代码。只提供手动下载不能满足产品需求；自建服务器增加运维和隐私边界；Cockpit 的发布代码和 workflow 不在 D-017 允许定向移植的 UI 范围内，继续独立实现。GitHub Releases 与 Tauri updater 能使用公开发布资产、签名校验和固定更新元数据，同时保持发布系统独立。
 
 Tauri updater 签名只验证更新资产是否由本项目发布，不能消除 Windows SmartScreen 或 macOS Gatekeeper 警告。操作系统代码签名需要额外证书、开发者账号和公证流程。
 
@@ -51,6 +51,6 @@ Tauri updater 签名只验证更新资产是否由本项目发布，不能消除
 
 ## 决策依据
 
-- 用户于 2026-08-30 确认三平台同时首发、MIT、个人仓库、只维护 stable、Draft 后人工发布、首版仅 updater 签名、不做平台代码签名。
+- 用户于 2026-08-30 确认三平台同时首发、个人仓库、只维护 stable、Draft 后人工发布、首版仅 updater 签名、不做平台代码签名；其中 MIT 口径已由用户 2026-08-31 的 CC BY-NC-SA 4.0 决策取代，详见 `docs/DECISIONS.md` §D-017。
 - Cockpit Tools 固定提交 `a0508ae815e104e931dae515389e680840008367` 的 `src-tauri/src/modules/update_checker.rs`、`src/App.tsx`、`src/components/UpdateNotification.tsx`、`src-tauri/src/modules/linux_updater.rs`、`src-tauri/tauri.conf.json` 和 `.github/workflows/release.yml` 仅用于行为研究。
 - Tauri 官方 updater 与 GitHub Actions 发布能力，以及 GitHub Draft Release、Rulesets、immutable releases 和 artifact attestations 的官方文档。
