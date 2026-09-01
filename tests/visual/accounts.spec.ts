@@ -344,6 +344,10 @@ test("Cursor accounts English dark visual contract", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Read local account" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Plan filter" })).toBeVisible();
   await expect(page.getByRole("group", { name: "Plan quota status" }).first().locator(".sand-reset-row")).toContainText("Needs refresh");
+  const futureReset = page.getByRole("group", { name: "Plan quota status" }).nth(1).locator(".sand-reset-row");
+  expect(await futureReset.locator(".sand-reset-relative").evaluate((element) => element.scrollWidth === element.clientWidth)).toBe(true);
+  expect(await futureReset.locator(".sand-detail-value").evaluate((element) => getComputedStyle(element).fontSize)).toBe("13px");
+  expect(await page.getByRole("group", { name: "Plan quota status" }).nth(1).locator(".sand-plan-row .sand-detail-value").evaluate((element) => getComputedStyle(element).fontSize)).toBe("14px");
   await expect(page).toHaveScreenshot("cursor-accounts-english-dark.png", { fullPage: true });
 });
 

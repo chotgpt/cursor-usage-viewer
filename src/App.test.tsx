@@ -170,7 +170,7 @@ describe("multi-account workspace", () => {
     const panel = screen.getByRole("group", { name: "套餐额度状态" });
     expect(panel).toHaveClass("sand-status-panel");
     expect(within(panel).queryByText("Grok / Sand")).not.toBeInTheDocument();
-    expect(panel.querySelector(".sand-quota-ring")).toHaveStyle("--sand-progress: 64.5%");
+    expect(panel.querySelector(".sand-quota-progress")).toHaveStyle("stroke-dasharray: 64.5 100");
     expect(panel.querySelector(".sand-quota-ring-value")).toHaveTextContent("64.5%");
     expect(panel.querySelector(".sand-plan-row")).toHaveTextContent("套餐Grok Bot Plan可访问");
     expect(panel.querySelector(".sand-plan-row .sand-access-text")).toHaveTextContent("可访问");
@@ -179,6 +179,17 @@ describe("multi-account workspace", () => {
     expect(panel.querySelector(".sand-reset-row")).toHaveTextContent("重置");
     expect(screen.getByText("PRO")).toHaveClass("tier-badge", "pro");
     expect(screen.queryByText("pro")).not.toBeInTheDocument();
+  });
+
+  it("does not draw a progress cap for zero Sand usage", async () => {
+    listedAccounts = [{ ...account(), sand: { ...account().sand!, usagePercent: 0 } }];
+    render(<App />);
+    await screen.findByText("one@example.invalid");
+
+    const ring = screen.getByRole("group", { name: "套餐额度状态" }).querySelector(".sand-quota-ring");
+    expect(ring?.querySelector(".sand-quota-track")).toBeInTheDocument();
+    expect(ring?.querySelector(".sand-quota-progress")).not.toBeInTheDocument();
+    expect(ring?.querySelector(".sand-quota-ring-value")).toHaveTextContent("0.0%");
   });
 
   it("distinguishes unlimited, team-limited, and disabled On-Demand usage", async () => {

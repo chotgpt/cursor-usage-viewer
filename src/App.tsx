@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { dictionaries, initialLanguage, type Language } from "./i18n";
 import { PAGE_SIZES, usePagination } from "./hooks/usePagination";
@@ -299,17 +299,16 @@ function SandQuota({ language, sand }: { language: Language; sand: CursorAccount
   return <div className={`sand-status-panel ${presentation.incomplete ? "incomplete" : ""}`} role="group" aria-label={localized(language, "套餐额度状态", "Plan quota status")}>
     <div
       className={`sand-quota-ring ${usageTone} ${sand?.usageError ? "stale" : ""}`}
-      style={{ "--sand-progress": `${presentation.usagePercent ?? 0}%` } as CSSProperties}
       title={presentation.usage}
       aria-label={`${usageLabel} ${usageValue}`}
     >
-      <svg className="sand-quota-ring-svg" viewBox="0 0 82 82" aria-hidden="true">
-        <circle className="sand-quota-track" cx="41" cy="41" r="34" pathLength="100"/>
+      <svg className="sand-quota-ring-svg" viewBox="0 0 88 88" aria-hidden="true">
+        <circle className="sand-quota-track" cx="44" cy="44" r="39" pathLength="100"/>
         {(presentation.usagePercent ?? 0) > 0 && <circle
           className="sand-quota-progress"
-          cx="41"
-          cy="41"
-          r="34"
+          cx="44"
+          cy="44"
+          r="39"
           pathLength="100"
           style={{ strokeDasharray: `${presentation.usagePercent} 100` }}
         />}
