@@ -21,6 +21,10 @@ pub struct CoreUsageSnapshot {
     pub auto_composer: UsageAmount,
     pub api: UsageAmount,
     pub on_demand: UsageAmount,
+    #[serde(default)]
+    pub on_demand_limit_type: Option<String>,
+    #[serde(default)]
+    pub is_unlimited: bool,
     pub billing_cycle_start: Option<String>,
     pub billing_cycle_end: Option<String>,
     pub source: String,
@@ -69,6 +73,8 @@ pub struct CursorAccountRecord {
     pub source: String,
     pub core_usage: Option<CoreUsageSnapshot>,
     pub sand: Option<SandSnapshot>,
+    #[serde(default)]
+    pub auxiliary_errors: Vec<String>,
     pub last_error: Option<String>,
     pub last_error_at: Option<i64>,
     pub created_at: i64,
@@ -103,12 +109,14 @@ pub struct CursorAccountView {
     pub sign_up_type: Option<String>,
     pub status: Option<String>,
     pub status_reason: Option<String>,
+    pub is_enterprise: bool,
     pub source: String,
     pub has_access_token: bool,
     pub has_refresh_token: bool,
     pub is_current: bool,
     pub core_usage: Option<CoreUsageSnapshot>,
     pub sand: Option<SandSnapshot>,
+    pub auxiliary_errors: Vec<String>,
     pub last_error: Option<String>,
     pub last_error_at: Option<i64>,
     pub created_at: i64,
@@ -151,6 +159,7 @@ impl CursorAccountRecord {
             sign_up_type: self.sign_up_type.clone(),
             status: self.status.clone(),
             status_reason: self.status_reason.clone(),
+            is_enterprise: is_enterprise_account(self),
             source: self.source.clone(),
             has_access_token: !self.access_token.is_empty(),
             has_refresh_token: self
@@ -160,6 +169,7 @@ impl CursorAccountRecord {
             is_current: current_id == Some(self.id.as_str()),
             core_usage: self.core_usage.clone(),
             sand: self.sand.clone(),
+            auxiliary_errors: self.auxiliary_errors.clone(),
             last_error: self.last_error.clone(),
             last_error_at: self.last_error_at,
             created_at: self.created_at,
@@ -188,11 +198,74 @@ impl CursorAccountRecord {
             source: "test".to_owned(),
             core_usage: None,
             sand: None,
+            auxiliary_errors: Vec::new(),
             last_error: None,
             last_error_at: None,
             created_at: 1,
             last_used: 1,
         }
+    }
+}
+
+fn is_enterprise_account(account: &CursorAccountRecord) -> bool {
+    let Some(raw) = account.cursor_auth_raw.as_ref().and_then(Value::as_object) else {
+        return false;
+    };
+    for key in ["isEnterprise", "is_enterprise"] {
+        if let Some(value) = raw.get(key).and_then(parse_bool_like) {
+            return value;
+        }
+    }
+    for key in ["teamMembershipType", "team_membership_type"] {
+        if let Some(value) = raw.get(key).and_then(Value::as_str) {
+            let normalized = value.to_ascii_lowercase();
+            if normalized.contains("enterprise") {
+                return true;
+            }
+            if normalized.contains("self_serve") || normalized.contains("selfserve") {
+                return false;
+            }
+        }
+    }
+    for key in ["isTeamMember", "is_team_member"] {
+        if let Some(value) = raw.get(key).and_then(parse_bool_like) {
+            return !value;
+        }
+    }
+    false
+}
+
+fn parse_bool_like(value: &Value) -> Option<bool> {
+    value.as_bool().or_else(|| {
+        value
+            .as_str()
+            .and_then(|value| match value.trim().to_ascii_lowercase().as_str() {
+                "true" => Some(true),
+                "false" => Some(false),
+                _ => None,
+            })
+    })
+}
+
+#[cfg(test)]
+mod view_tests {
+    use super::*;
+
+    #[test]
+    fn enterprise_membership_keeps_cockpit_team_distinction() {
+        let mut account =
+            CursorAccountRecord::fake_for_test("account", "user@example.invalid", "token");
+        account.membership_type = Some("enterprise".to_owned());
+        account.cursor_auth_raw = Some(serde_json::json!({ "teamMembershipType": "self_serve" }));
+        assert!(!account.view(None).is_enterprise);
+
+        account.cursor_auth_raw = Some(serde_json::json!({ "teamMembershipType": "enterprise" }));
+        assert!(account.view(None).is_enterprise);
+
+        account.cursor_auth_raw = Some(
+            serde_json::json!({ "isEnterprise": "false", "teamMembershipType": "enterprise" }),
+        );
+        assert!(!account.view(None).is_enterprise);
     }
 }
 
@@ -242,6 +315,7 @@ impl RawCursorAccount {
             source: "cursor".to_owned(),
             core_usage: None,
             sand: None,
+            auxiliary_errors: Vec::new(),
             last_error: None,
             last_error_at: None,
             created_at: now,

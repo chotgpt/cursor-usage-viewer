@@ -1,11 +1,11 @@
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{AppError, AppResult};
+use crate::{
+    error::AppResult,
+    storage::{read_json_with_backup, write_json_atomic},
+};
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -23,6 +23,10 @@ pub struct DesktopSettings {
     pub close_behavior: CloseBehavior,
     pub start_minimized: bool,
     pub remember_window: bool,
+    pub window_x: Option<i32>,
+    pub window_y: Option<i32>,
+    pub window_width: Option<u32>,
+    pub window_height: Option<u32>,
 }
 
 impl Default for DesktopSettings {
@@ -32,6 +36,10 @@ impl Default for DesktopSettings {
             close_behavior: CloseBehavior::Ask,
             start_minimized: false,
             remember_window: false,
+            window_x: None,
+            window_y: None,
+            window_width: None,
+            window_height: None,
         }
     }
 }
@@ -46,22 +54,28 @@ impl DesktopSettingsStore {
         }
     }
     pub fn load(&self) -> DesktopSettings {
-        fs::read(&self.path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .filter(|value: &DesktopSettings| value.schema_version == 1)
-            .unwrap_or_default()
+        self.load_for_ui().unwrap_or_default()
+    }
+    pub fn load_for_ui(&self) -> AppResult<DesktopSettings> {
+        let backup = self
+            .path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(|name| self.path.with_file_name(format!("{name}.bak")));
+        if !self.path.exists() && backup.as_ref().map_or(true, |path| !path.exists()) {
+            return Ok(DesktopSettings::default());
+        }
+        let value: DesktopSettings = read_json_with_backup(&self.path)?;
+        if value.schema_version != 1 {
+            return Err(crate::error::AppError::Storage(
+                "桌面设置版本不受支持".to_owned(),
+            ));
+        }
+        Ok(value)
     }
     pub fn save(&self, value: &DesktopSettings) -> AppResult<()> {
-        if let Some(parent) = self.path.parent() {
-            fs::create_dir_all(parent).map_err(storage_error)?;
-        }
-        let bytes = serde_json::to_vec_pretty(value).map_err(storage_error)?;
-        fs::write(&self.path, bytes).map_err(storage_error)
+        write_json_atomic(&self.path, value, true)
     }
-}
-fn storage_error(error: impl std::fmt::Display) -> AppError {
-    AppError::Storage(error.to_string())
 }
 
 #[cfg(test)]
@@ -77,5 +91,27 @@ mod tests {
         settings.close_behavior = CloseBehavior::MinimizeToTray;
         store.save(&settings).unwrap();
         assert_eq!(store.load().close_behavior, CloseBehavior::MinimizeToTray);
+    }
+
+    #[test]
+    fn corrupt_desktop_settings_recover_from_the_last_backup() {
+        let dir = tempdir().unwrap();
+        let store = DesktopSettingsStore::new(dir.path());
+        let mut settings = store.load();
+        settings.close_behavior = CloseBehavior::MinimizeToTray;
+        store.save(&settings).unwrap();
+        settings.close_behavior = CloseBehavior::Exit;
+        store.save(&settings).unwrap();
+        std::fs::write(dir.path().join("desktop_settings.json"), b"broken").unwrap();
+
+        assert_eq!(store.load().close_behavior, CloseBehavior::MinimizeToTray);
+    }
+
+    #[test]
+    fn corrupt_desktop_settings_without_backup_is_reported_to_the_ui() {
+        let dir = tempdir().unwrap();
+        let store = DesktopSettingsStore::new(dir.path());
+        std::fs::write(dir.path().join("desktop_settings.json"), b"broken").unwrap();
+        assert!(store.load_for_ui().is_err());
     }
 }

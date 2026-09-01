@@ -35,6 +35,12 @@ pub enum AppError {
     },
     #[error("Cursor 官方端点返回了 HTTP {0}")]
     UnexpectedStatus(u16),
+    #[error("{stage}：{source}")]
+    EndpointStage {
+        stage: &'static str,
+        #[source]
+        source: Box<AppError>,
+    },
     #[error("粘贴的 Cockpit Tools JSON 超过 8 MiB 安全限制")]
     ImportJsonTooLarge,
     #[error("Cockpit Tools JSON 格式无效")]
@@ -49,6 +55,15 @@ pub enum AppError {
     InvalidAccountId,
     #[error("账号存储失败：{0}")]
     Storage(String),
+}
+
+impl AppError {
+    pub fn at_endpoint(self, stage: &'static str) -> Self {
+        Self::EndpointStage {
+            stage,
+            source: Box::new(self),
+        }
+    }
 }
 
 pub type AppResult<T> = Result<T, AppError>;

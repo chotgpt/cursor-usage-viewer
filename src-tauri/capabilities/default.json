@@ -13,7 +13,11 @@
     "process:allow-restart",
     {
       "identifier": "opener:allow-open-url",
-      "allow": [{ "url": "https://github.com/chotgpt/cursor-usage-viewer/releases/*" }]
+      "allow": [
+        { "url": "https://github.com/chotgpt/cursor-usage-viewer" },
+        { "url": "https://github.com/chotgpt/cursor-usage-viewer/releases" },
+        { "url": "https://github.com/chotgpt/cursor-usage-viewer/releases/*" }
+      ]
     }
   ]
 }

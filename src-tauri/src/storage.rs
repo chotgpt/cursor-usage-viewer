@@ -56,6 +56,27 @@ impl AccountStore {
         Ok(account.view(None))
     }
 
+    pub fn persist_refreshed(&self, account: CursorAccountRecord) -> AppResult<CursorAccountView> {
+        validate_account_id(&account.id)?;
+        if account.schema_version != ACCOUNT_SCHEMA_VERSION {
+            return Err(AppError::Storage("不支持的账号存储版本".to_owned()));
+        }
+        // A refresh starts from the stored record and is authoritative for nullable
+        // error fields. Merging it as an import would resurrect an older timestamped
+        // 403 after a later successful refresh explicitly cleared that error.
+        self.get(&account.id)?;
+        write_json_atomic(&self.account_path(&account.id)?, &account, true)?;
+        let mut index = self.load_index_or_rebuild()?;
+        let summary = index
+            .accounts
+            .iter_mut()
+            .find(|item| item.id == account.id)
+            .ok_or(AppError::AccountNotFound)?;
+        *summary = account.summary();
+        write_json_atomic(&self.index_path(), &index, true)?;
+        Ok(account.view(None))
+    }
+
     pub fn list_records(&self) -> AppResult<Vec<CursorAccountRecord>> {
         let index = self.load_index_or_rebuild()?;
         let mut records = Vec::with_capacity(index.accounts.len());
@@ -88,16 +109,65 @@ impl AccountStore {
     }
 
     pub fn delete(&self, account_id: &str) -> AppResult<()> {
-        let account_path = self.account_path(account_id)?;
-        remove_if_exists(&account_path)?;
-        remove_if_exists(&backup_path(&account_path)?)?;
+        self.delete_many(&[account_id.to_owned()])
+    }
 
+    pub fn delete_many(&self, account_ids: &[String]) -> AppResult<()> {
+        let paths = account_ids
+            .iter()
+            .map(|account_id| self.account_path(account_id))
+            .collect::<AppResult<Vec<_>>>()?;
         let mut index = self.load_index_or_rebuild()?;
-        index.accounts.retain(|account| account.id != account_id);
+        index
+            .accounts
+            .retain(|account| !account_ids.iter().any(|id| id == &account.id));
         let index_path = self.index_path();
         write_json_atomic(&index_path, &index, false)?;
         remove_if_exists(&backup_path(&index_path)?)?;
+        // Commit the non-sensitive index first. If a later file removal fails,
+        // credentials remain recoverable as an orphan instead of being lost while
+        // the index still advertises an account whose detail file no longer exists.
+        for account_path in paths {
+            remove_if_exists(&account_path)?;
+            remove_if_exists(&backup_path(&account_path)?)?;
+        }
         Ok(())
+    }
+
+    pub fn update_tags(
+        &self,
+        account_id: &str,
+        tags: Vec<String>,
+        current_id: Option<&str>,
+    ) -> AppResult<CursorAccountView> {
+        if tags.len() > 32 {
+            return Err(AppError::Storage("账号标签最多允许 32 个".to_owned()));
+        }
+        let mut normalized = Vec::with_capacity(tags.len());
+        for tag in tags {
+            let tag = tag.trim();
+            if tag.is_empty() || tag.chars().count() > 128 {
+                return Err(AppError::Storage(
+                    "账号标签不能为空或超过 128 个字符".to_owned(),
+                ));
+            }
+            if !normalized
+                .iter()
+                .any(|item: &String| item.eq_ignore_ascii_case(tag))
+            {
+                normalized.push(tag.to_owned());
+            }
+        }
+        let mut account = self.get(account_id)?;
+        account.tags = normalized;
+        account.last_used = now_seconds();
+        write_json_atomic(&self.account_path(account_id)?, &account, true)?;
+        let mut index = self.load_index_or_rebuild()?;
+        if let Some(summary) = index.accounts.iter_mut().find(|item| item.id == account_id) {
+            *summary = account.summary();
+        }
+        write_json_atomic(&self.index_path(), &index, true)?;
+        Ok(account.view(current_id))
     }
 
     fn load_index_or_rebuild(&self) -> AppResult<AccountIndex> {
@@ -273,6 +343,9 @@ fn merge_account(
     if sand_timestamp(incoming.sand.as_ref()) >= sand_timestamp(primary.sand.as_ref()) {
         replace_some(&mut primary.sand, incoming.sand);
     }
+    if !incoming.auxiliary_errors.is_empty() {
+        primary.auxiliary_errors = incoming.auxiliary_errors;
+    }
     if incoming.last_error_at.unwrap_or_default() >= primary.last_error_at.unwrap_or_default() {
         primary.last_error = incoming.last_error;
         primary.last_error_at = incoming.last_error_at;
@@ -330,7 +403,7 @@ fn backup_path(path: &Path) -> AppResult<PathBuf> {
     Ok(path.with_file_name(format!("{name}.bak")))
 }
 
-fn read_json_with_backup<T: DeserializeOwned>(path: &Path) -> AppResult<T> {
+pub(crate) fn read_json_with_backup<T: DeserializeOwned>(path: &Path) -> AppResult<T> {
     match fs::read(path)
         .map_err(storage_error)
         .and_then(|bytes| serde_json::from_slice(&bytes).map_err(storage_error))
@@ -346,12 +419,16 @@ fn read_json_with_backup<T: DeserializeOwned>(path: &Path) -> AppResult<T> {
     }
 }
 
-fn write_json_atomic<T: Serialize>(path: &Path, value: &T, backup: bool) -> AppResult<()> {
+pub(crate) fn write_json_atomic<T: Serialize>(
+    path: &Path,
+    value: &T,
+    backup: bool,
+) -> AppResult<()> {
     let bytes = serde_json::to_vec_pretty(value).map_err(storage_error)?;
     write_bytes_atomic(path, &bytes, backup)
 }
 
-fn write_bytes_atomic(path: &Path, bytes: &[u8], create_backup: bool) -> AppResult<()> {
+pub(crate) fn write_bytes_atomic(path: &Path, bytes: &[u8], create_backup: bool) -> AppResult<()> {
     let parent = path
         .parent()
         .ok_or_else(|| AppError::Storage("无法定位存储目录".to_owned()))?;
@@ -394,11 +471,18 @@ fn remove_if_exists(path: &Path) -> AppResult<()> {
     Ok(())
 }
 
+fn now_seconds() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
+}
+
 #[cfg(test)]
 mod tests {
     use tempfile::tempdir;
 
-    use super::AccountStore;
+    use super::{write_bytes_atomic, AccountStore};
     use crate::model::CursorAccountRecord;
 
     #[test]
@@ -419,6 +503,20 @@ mod tests {
         assert_eq!(views[0].email.as_deref(), Some("person@example.invalid"));
         let serialized = serde_json::to_string(&views).unwrap();
         assert!(!serialized.contains("fake.header.signature"));
+    }
+
+    #[test]
+    fn explicit_exports_do_not_create_credential_bearing_backups() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("accounts-export.json");
+        std::fs::write(&path, b"previous export").unwrap();
+        write_bytes_atomic(&path, br#"{"accessToken":"secret"}"#, false).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            r#"{"accessToken":"secret"}"#
+        );
+        assert!(!directory.path().join("accounts-export.json.bak").exists());
     }
 
     #[test]
@@ -506,5 +604,50 @@ mod tests {
         let all_bytes = std::fs::read(directory.path().join("cursor_accounts.json")).unwrap();
         assert!(!String::from_utf8_lossy(&all_bytes).contains("cursor_delete"));
         assert!(!directory.path().join("cursor_accounts.json.bak").exists());
+    }
+
+    #[test]
+    fn successful_refresh_authoritatively_clears_an_older_error() {
+        let directory = tempdir().unwrap();
+        let store = AccountStore::new(directory.path().to_path_buf());
+        let mut failed = CursorAccountRecord::fake_for_test(
+            "cursor_refresh",
+            "refresh@example.invalid",
+            "fake.header.signature",
+        );
+        failed.last_error = Some("核心额度（usage-summary）：HTTP 403".to_owned());
+        failed.last_error_at = Some(10);
+        store.upsert(failed.clone()).unwrap();
+
+        failed.last_error = None;
+        failed.last_error_at = None;
+        failed.last_used = 20;
+        let view = store.persist_refreshed(failed).unwrap();
+
+        assert_eq!(view.last_error, None);
+        assert_eq!(store.get("cursor_refresh").unwrap().last_error, None);
+    }
+
+    #[test]
+    fn updating_tags_normalizes_values_and_marks_the_account_recently_used() {
+        let directory = tempdir().unwrap();
+        let store = AccountStore::new(directory.path().to_path_buf());
+        let account = CursorAccountRecord::fake_for_test(
+            "cursor_tags",
+            "tags@example.invalid",
+            "fake.header.signature",
+        );
+        store.upsert(account).unwrap();
+
+        let view = store
+            .update_tags(
+                "cursor_tags",
+                vec![" Work ".to_owned(), "work".to_owned(), "Paid".to_owned()],
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(view.tags, ["Work", "Paid"]);
+        assert!(view.last_used > 1);
     }
 }

@@ -1,9 +1,12 @@
-use std::{path::PathBuf, sync::Mutex};
+use std::{
+    path::{Path, PathBuf},
+    sync::Mutex,
+};
 
 use zeroize::Zeroizing;
 
 use crate::{
-    desktop::{CloseBehavior, DesktopSettingsStore},
+    desktop::{CloseBehavior, DesktopSettings, DesktopSettingsStore},
     error::{AppError, AppResult},
     model::{CursorAccountRecord, CursorAccountView},
     provider::CursorUsageProvider,
@@ -15,8 +18,9 @@ pub struct AppState {
     store: Mutex<AccountStore>,
     current_id: Mutex<Option<String>>,
     pub provider: CursorUsageProvider,
-    desktop: DesktopSettingsStore,
-    updates: UpdateSettingsStore,
+    desktop: Mutex<DesktopSettingsStore>,
+    updates: Mutex<UpdateSettingsStore>,
+    last_saved_export: Mutex<Option<PathBuf>>,
 }
 
 impl AppState {
@@ -27,8 +31,9 @@ impl AppState {
             store: Mutex::new(AccountStore::new(data_dir)),
             current_id: Mutex::new(None),
             provider: CursorUsageProvider::new()?,
-            desktop,
-            updates,
+            desktop: Mutex::new(desktop),
+            updates: Mutex::new(updates),
+            last_saved_export: Mutex::new(None),
         })
     }
 
@@ -124,6 +129,36 @@ impl AppState {
         Ok(())
     }
 
+    pub fn delete_many(&self, account_ids: &[String]) -> AppResult<()> {
+        self.store
+            .lock()
+            .map_err(|_| AppError::StateUnavailable)?
+            .delete_many(account_ids)?;
+        let mut current = self
+            .current_id
+            .lock()
+            .map_err(|_| AppError::StateUnavailable)?;
+        if current
+            .as_ref()
+            .is_some_and(|current_id| account_ids.iter().any(|id| id == current_id))
+        {
+            *current = None;
+        }
+        Ok(())
+    }
+
+    pub fn update_tags(&self, account_id: &str, tags: Vec<String>) -> AppResult<CursorAccountView> {
+        let current = self
+            .current_id
+            .lock()
+            .map_err(|_| AppError::StateUnavailable)?
+            .clone();
+        self.store
+            .lock()
+            .map_err(|_| AppError::StateUnavailable)?
+            .update_tags(account_id, tags, current.as_deref())
+    }
+
     pub fn export_json(&self, account_ids: &[String]) -> AppResult<Zeroizing<String>> {
         self.store
             .lock()
@@ -132,28 +167,99 @@ impl AppState {
             .map(Zeroizing::new)
     }
 
+    pub fn remember_saved_export(&self, path: PathBuf) -> AppResult<()> {
+        *self
+            .last_saved_export
+            .lock()
+            .map_err(|_| AppError::StateUnavailable)? = Some(path);
+        Ok(())
+    }
+
+    pub fn authorize_saved_export(&self, path: &Path) -> AppResult<PathBuf> {
+        let saved = self
+            .last_saved_export
+            .lock()
+            .map_err(|_| AppError::StateUnavailable)?;
+        if saved.as_deref() != Some(path) {
+            return Err(AppError::Storage(
+                "只能打开最近一次成功保存的导出文件位置".to_owned(),
+            ));
+        }
+        Ok(path.to_path_buf())
+    }
+
     pub fn persist(&self, account: CursorAccountRecord) -> AppResult<CursorAccountView> {
-        self.upsert(account, false)
+        let current = self
+            .current_id
+            .lock()
+            .map_err(|_| AppError::StateUnavailable)?
+            .clone();
+        let account_id = account.id.clone();
+        self.store
+            .lock()
+            .map_err(|_| AppError::StateUnavailable)?
+            .persist_refreshed(account)?;
+        Ok(self
+            .store
+            .lock()
+            .map_err(|_| AppError::StateUnavailable)?
+            .get(&account_id)?
+            .view(current.as_deref()))
     }
 
     pub fn close_behavior(&self) -> CloseBehavior {
-        self.desktop.load().close_behavior
+        self.desktop
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .load()
+            .close_behavior
     }
 
     pub fn set_close_behavior(&self, behavior: CloseBehavior) -> AppResult<()> {
-        let mut settings = self.desktop.load();
+        let desktop = self
+            .desktop
+            .lock()
+            .map_err(|_| AppError::StateUnavailable)?;
+        let mut settings = desktop.load();
         settings.close_behavior = behavior;
-        self.desktop.save(&settings)
+        desktop.save(&settings)
+    }
+    pub fn desktop_settings(&self) -> DesktopSettings {
+        self.desktop
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .load()
+    }
+    pub fn desktop_settings_for_ui(&self) -> AppResult<DesktopSettings> {
+        self.desktop
+            .lock()
+            .map_err(|_| AppError::StateUnavailable)?
+            .load_for_ui()
+    }
+    pub fn save_desktop_settings(&self, settings: &DesktopSettings) -> AppResult<()> {
+        self.desktop
+            .lock()
+            .map_err(|_| AppError::StateUnavailable)?
+            .save(settings)
     }
 
-    pub fn update_settings(&self) -> UpdateSettings {
-        self.updates.load()
+    pub fn update_settings_for_ui(&self) -> AppResult<UpdateSettings> {
+        self.updates
+            .lock()
+            .map_err(|_| AppError::StateUnavailable)?
+            .load_for_ui()
     }
     pub fn save_update_settings(&self, settings: &UpdateSettings) -> AppResult<()> {
-        self.updates.save(settings)
+        self.updates
+            .lock()
+            .map_err(|_| AppError::StateUnavailable)?
+            .save(settings)
     }
     pub fn mark_update_checked(&self) -> AppResult<UpdateSettings> {
-        self.updates.mark_checked()
+        self.updates
+            .lock()
+            .map_err(|_| AppError::StateUnavailable)?
+            .mark_checked()
     }
     pub fn prepare_update_install(
         &self,
@@ -162,10 +268,15 @@ impl AppState {
         notes: &str,
     ) -> AppResult<()> {
         self.updates
+            .lock()
+            .map_err(|_| AppError::StateUnavailable)?
             .prepare_install(from_version, to_version, notes)
     }
     pub fn consume_version_change(&self, current_version: &str) -> AppResult<Option<PendingNotes>> {
-        self.updates.consume_version_change(current_version)
+        self.updates
+            .lock()
+            .map_err(|_| AppError::StateUnavailable)?
+            .consume_version_change(current_version)
     }
 }
 
@@ -188,5 +299,18 @@ mod tests {
         let reopened = AppState::new(directory.path().to_path_buf()).unwrap();
         assert_eq!(reopened.list().unwrap().len(), 1);
         assert!(!reopened.list().unwrap()[0].is_current);
+    }
+
+    #[test]
+    fn reveal_is_limited_to_the_last_successful_export_path() {
+        let directory = tempdir().unwrap();
+        let state = AppState::new(directory.path().to_path_buf()).unwrap();
+        let saved = directory.path().join("saved.json");
+        let other = directory.path().join("other.json");
+
+        state.remember_saved_export(saved.clone()).unwrap();
+
+        assert_eq!(state.authorize_saved_export(&saved).unwrap(), saved);
+        assert!(state.authorize_saved_export(&other).is_err());
     }
 }
