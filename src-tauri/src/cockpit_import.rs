@@ -8,7 +8,8 @@ use zeroize::Zeroizing;
 
 use crate::{
     error::{AppError, AppResult},
-    model::{CoreUsageSnapshot, CursorAccountRecord, UsageAmount, ACCOUNT_SCHEMA_VERSION},
+    model::{CursorAccountRecord, ACCOUNT_SCHEMA_VERSION},
+    provider::map_core_usage,
 };
 
 const MAX_IMPORT_BYTES: usize = 8 * 1024 * 1024;
@@ -156,8 +157,9 @@ fn parse_account(value: Value, index: usize) -> AppResult<CursorAccountRecord> {
         source: "cockpit-tools".to_owned(),
         core_usage: usage_raw
             .as_ref()
-            .map(|value| map_imported_usage(value, usage_updated_at)),
+            .map(|value| map_core_usage(value, usage_updated_at, "imported_cache")),
         sand: None,
+        auxiliary_errors: Vec::new(),
         last_error: None,
         last_error_at: None,
         created_at: integer_value(object, &["created_at", "createdAt"]).unwrap_or(now),
@@ -165,42 +167,6 @@ fn parse_account(value: Value, index: usize) -> AppResult<CursorAccountRecord> {
     })
 }
 
-fn map_imported_usage(raw: &Value, updated_at: i64) -> CoreUsageSnapshot {
-    let plan = raw.pointer("/individualUsage/plan").unwrap_or(&Value::Null);
-    let on_demand = raw
-        .pointer("/individualUsage/onDemand")
-        .unwrap_or(&Value::Null);
-    CoreUsageSnapshot {
-        total: amount_from(plan, Some("totalPercentUsed")),
-        auto_composer: amount_from(plan, Some("autoPercentUsed")),
-        api: amount_from(plan, Some("apiPercentUsed")),
-        on_demand: amount_from(on_demand, None),
-        billing_cycle_start: raw
-            .get("billingCycleStart")
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned),
-        billing_cycle_end: raw
-            .get("billingCycleEnd")
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned),
-        source: "imported_cache".to_owned(),
-        updated_at,
-        error: None,
-    }
-}
-
-fn amount_from(value: &Value, percent_key: Option<&str>) -> UsageAmount {
-    UsageAmount {
-        enabled: value.get("enabled").and_then(Value::as_bool),
-        used: number(value.get("used")),
-        limit: number(value.get("limit")),
-        remaining: number(value.get("remaining")),
-        percent_used: percent_key.and_then(|key| number(value.get(key))),
-    }
-}
-fn number(value: Option<&Value>) -> Option<f64> {
-    value.and_then(Value::as_f64)
-}
 fn string_value(object: &serde_json::Map<String, Value>, keys: &[&str]) -> Option<String> {
     keys.iter().find_map(|key| {
         object
@@ -272,7 +238,7 @@ mod tests {
     }
     #[test]
     fn imports_single_array_and_wrapped_accounts_with_cached_usage() {
-        let account = serde_json::json!({"email":"person@example.invalid","access_token":fake_token("auth0|user_test"),"tags":["A"],"cursor_usage_raw":{"billingCycleEnd":"2026-09-20T00:00:00Z","individualUsage":{"plan":{"apiPercentUsed":100.0,"autoPercentUsed":11.0,"totalPercentUsed":20.0}}},"usage_updated_at":123});
+        let account = serde_json::json!({"email":"person@example.invalid","access_token":fake_token("auth0|user_test"),"tags":["A"],"cursor_usage_raw":{"billingCycleEnd":"2026-09-20T00:00:00Z","limitType":"team","individualUsage":{"plan":{"apiPercentUsed":100.0,"autoPercentUsed":11.0,"totalPercentUsed":20.0},"onDemand":{"enabled":true,"limit":80}},"teamUsage":{"onDemand":{"used":50}},"spendLimitUsage":{"pooledLimit":200}},"usage_updated_at":123});
         for payload in [
             account.clone(),
             serde_json::json!([account.clone()]),
@@ -284,6 +250,8 @@ mod tests {
             let usage = records[0].core_usage.as_ref().unwrap();
             assert_eq!(usage.source, "imported_cache");
             assert_eq!(usage.api.percent_used, Some(100.0));
+            assert_eq!(usage.on_demand.used, Some(50.0));
+            assert_eq!(usage.on_demand.limit, Some(200.0));
             assert_eq!(usage.updated_at, 123);
         }
     }

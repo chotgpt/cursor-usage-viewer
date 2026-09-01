@@ -1,0 +1,55 @@
+name: Release acceptance
+description: Human product acceptance for one exact release candidate. Never let an AI or automation complete this form.
+title: "[Release acceptance] v"
+labels: ["release-acceptance"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is a stable-release security gate, not a progress checklist. The repository owner must run and inspect the exact tagged candidate before completing it. AI agents and automation must not create, edit, check, label, close, or approve this issue on the owner's behalf.
+  - type: input
+    id: tag
+    attributes:
+      label: Release tag
+      description: Exact immutable candidate tag, for example v0.2.0.
+      placeholder: v0.2.0
+    validations:
+      required: true
+  - type: input
+    id: sha
+    attributes:
+      label: Exact candidate commit SHA
+      description: Full 40-character SHA resolved by the tag after the Draft workflow is green.
+      placeholder: 0123456789abcdef0123456789abcdef01234567
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Acceptance evidence
+      description: Link the green CI, CodeQL and Draft runs; describe tested OS/package, screenshots or observations, updater E2E run, and every known issue accepted for this release.
+    validations:
+      required: true
+  - type: checkboxes
+    id: acceptance
+    attributes:
+      label: Human acceptance checklist
+      options:
+        - label: "[SOURCE_REVIEWED] I reviewed the exact candidate's source diff, dependencies, permissions, network boundaries and release notes."
+          required: true
+        - label: "[UI_ACCEPTED] I personally ran the exact candidate and accepted the UI, copy, accessibility and both languages."
+          required: true
+        - label: "[VISUAL_GATE_ACCEPTED] I reviewed the 1280x800 dark and light visual baseline diffs plus fresh exact-candidate screenshots; the Cockpit-derived structure, three-column cards, fifth Grok/Sand quota and current-account-first presentation are accepted."
+          required: true
+        - label: "[CORE_FUNCTIONS_ACCEPTED] I personally tested import, search/filter/page, one-click refresh, Free/non-JSON behavior, export and deletion."
+          required: true
+        - label: "[PERSISTENCE_ACCEPTED] I restarted the exact candidate and verified save, merge, recovery and deletion behavior with isolated test data."
+          required: true
+        - label: "[SECURITY_ACCEPTED] I used no real secrets in public evidence and reviewed credential, CodeQL, dependency, CC BY-NC-SA and Cockpit derivative-attribution gates."
+          required: true
+        - label: "[UPDATER_E2E_ACCEPTED] I reviewed actual old-to-new isolated updater E2E evidence for every supported package/platform required by the release plan."
+          required: true
+        - label: "[KNOWN_ISSUES_REVIEWED] I reviewed all open release-blocker issues and explicitly accept the documented non-blocking limitations."
+          required: true
+        - label: "[STABLE_AUTHORIZED] I authorize publishing this exact tag and SHA as the stable release; any code, tag or asset change invalidates this approval."
+          required: true

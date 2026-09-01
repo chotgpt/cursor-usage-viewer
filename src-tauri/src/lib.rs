@@ -13,10 +13,10 @@ mod updater;
 use tauri::{Emitter, Manager, State};
 use zeroize::Zeroizing;
 
-use desktop::CloseBehavior;
+use desktop::{CloseBehavior, DesktopSettings};
 use model::{BatchAccountResult, CursorAccountView};
 use state::AppState;
-use updater::{PendingNotes, UpdateSettings};
+use updater::{PendingNotes, ReleaseHistoryItem, UpdateSettings};
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -131,6 +131,44 @@ fn delete_cursor_account(account_id: String, state: State<'_, AppState>) -> Resu
 }
 
 #[tauri::command]
+fn delete_cursor_accounts(
+    account_ids: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state
+        .delete_many(&account_ids)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn get_desktop_settings(state: State<'_, AppState>) -> Result<DesktopSettings, String> {
+    state
+        .desktop_settings_for_ui()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn save_desktop_settings(
+    settings: DesktopSettings,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state
+        .save_desktop_settings(&settings)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn update_cursor_account_tags(
+    account_id: String,
+    tags: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<CursorAccountView, String> {
+    state
+        .update_tags(&account_id, tags)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 fn clear_cursor_credentials(state: State<'_, AppState>) -> Result<(), String> {
     let ids = state
         .list()
@@ -164,8 +202,27 @@ fn save_cursor_accounts_export(
     let json = state
         .export_json(&account_ids)
         .map_err(|error| error.to_string())?;
-    std::fs::write(std::path::PathBuf::from(path), json.as_bytes())
-        .map_err(|error| format!("保存 JSON 失败：{error}"))
+    let path = std::path::PathBuf::from(path);
+    // The user explicitly chose this export path; unlike app-data account
+    // persistence, an export must not create a second credential-bearing
+    // backup beside the file.
+    storage::write_bytes_atomic(&path, json.as_bytes(), false)
+        .map_err(|error| format!("保存 JSON 失败：{error}"))?;
+    state
+        .remember_saved_export(path)
+        .map_err(|error| format!("记录导出位置失败：{error}"))
+}
+
+#[tauri::command]
+fn reveal_saved_cursor_accounts_export(
+    path: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let path = state
+        .authorize_saved_export(std::path::Path::new(&path))
+        .map_err(|error| error.to_string())?;
+    tauri_plugin_opener::reveal_item_in_dir(path)
+        .map_err(|error| format!("打开保存位置失败：{error}"))
 }
 
 #[tauri::command]
@@ -200,8 +257,10 @@ fn perform_close_action(
 }
 
 #[tauri::command]
-fn get_update_settings(state: State<'_, AppState>) -> UpdateSettings {
-    state.update_settings()
+fn get_update_settings(state: State<'_, AppState>) -> Result<UpdateSettings, String> {
+    state
+        .update_settings_for_ui()
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -241,6 +300,11 @@ fn consume_version_change(
     state
         .consume_version_change(&current_version)
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn get_release_history(limit: Option<usize>) -> Vec<ReleaseHistoryItem> {
+    updater::release_history(limit)
 }
 
 #[tauri::command]
@@ -329,10 +393,43 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
-            app.manage(
-                AppState::new(data_dir)
-                    .map_err(|error| std::io::Error::other(error.to_string()))?,
-            );
+            let state = AppState::new(data_dir)
+                .map_err(|error| std::io::Error::other(error.to_string()))?;
+            let desktop_settings = state.desktop_settings();
+            app.manage(state);
+            if let Some(window) = app.get_webview_window("main") {
+                if desktop_settings.remember_window {
+                    if let (Some(x), Some(y)) =
+                        (desktop_settings.window_x, desktop_settings.window_y)
+                    {
+                        // A monitor may have been disconnected since the last
+                        // run. Only restore coordinates that still land on an
+                        // available monitor; otherwise retain the framework's
+                        // safe default placement.
+                        if window
+                            .monitor_from_point(x as f64, y as f64)
+                            .ok()
+                            .flatten()
+                            .is_some()
+                        {
+                            let _ = window.set_position(tauri::Position::Physical(
+                                tauri::PhysicalPosition::new(x, y),
+                            ));
+                        }
+                    }
+                    if let (Some(width), Some(height)) = (
+                        desktop_settings.window_width,
+                        desktop_settings.window_height,
+                    ) {
+                        let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(
+                            width, height,
+                        )));
+                    }
+                }
+                if desktop_settings.start_minimized {
+                    let _ = window.hide();
+                }
+            }
             let show =
                 tauri::menu::MenuItem::with_id(app, "show", "显示 / 隐藏", true, None::<&str>)?;
             let update =
@@ -365,6 +462,18 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let state = window.state::<AppState>();
+                let mut settings = state.desktop_settings();
+                if settings.remember_window {
+                    if let Ok(position) = window.outer_position() {
+                        settings.window_x = Some(position.x);
+                        settings.window_y = Some(position.y);
+                    }
+                    if let Ok(size) = window.outer_size() {
+                        settings.window_width = Some(size.width);
+                        settings.window_height = Some(size.height);
+                    }
+                    let _ = state.save_desktop_settings(&settings);
+                }
                 match state.close_behavior() {
                     CloseBehavior::Ask => {
                         api.prevent_close();
@@ -387,15 +496,21 @@ pub fn run() {
             refresh_cursor_account,
             refresh_cursor_accounts,
             delete_cursor_account,
+            delete_cursor_accounts,
+            update_cursor_account_tags,
+            get_desktop_settings,
+            save_desktop_settings,
             clear_cursor_credentials,
             export_cursor_accounts,
             save_cursor_accounts_export,
+            reveal_saved_cursor_accounts_export,
             perform_close_action,
             get_update_settings,
             save_update_settings,
             mark_update_checked,
             prepare_update_install,
             consume_version_change,
+            get_release_history,
             get_desktop_platform,
             download_linux_package_update,
             install_linux_package_update,

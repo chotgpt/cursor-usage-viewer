@@ -1,8 +1,7 @@
 import path from "node:path";
 import { REQUIRED_TARGETS, verifyReleaseDocuments } from "./manifests.mjs";
 
-export function verifyPublishedRelease({ release, repo, tag, documents, checksums }) {
-  if (release.isDraft || release.isPrerelease) throw new Error("release is not stable");
+export function verifyReleaseIntegrity({ release, repo, tag, documents, checksums }) {
   if (!/^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(tag)) throw new Error(`invalid tag: ${tag}`);
   const version = tag.slice(1);
   verifyReleaseDocuments(documents);
@@ -33,4 +32,9 @@ export function verifyPublishedRelease({ release, repo, tag, documents, checksum
     if (name !== "SHA256SUMS.txt" && !checksumNames.has(name)) throw new Error(`missing checksum for ${name}`);
   }
   return true;
+}
+
+export function verifyPublishedRelease(input) {
+  if (input.release.isDraft || input.release.isPrerelease) throw new Error("release is not stable");
+  return verifyReleaseIntegrity(input);
 }

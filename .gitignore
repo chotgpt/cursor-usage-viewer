@@ -1,5 +1,7 @@
 /node_modules/
 /dist/
+/test-results/
+/playwright-report/
 /src-tauri/target/
 /src-tauri/target-smoke/
 /src-tauri/target-bundle-smoke/

@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Release process
+    url: https://github.com/chotgpt/cursor-usage-viewer/blob/main/docs/RELEASING.md
+    about: Stable publication requires the owner-only acceptance form and protected environment approval.
   - name: Private security report
     url: https://github.com/chotgpt/cursor-usage-viewer/security/advisories/new
     about: Never report credentials or private account data in a public issue.

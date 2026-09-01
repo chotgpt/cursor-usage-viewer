@@ -8,7 +8,7 @@
 
 用户主动粘贴 Cockpit Tools JSON 并提交时，原始 JSON 与 Token 会短暂经过 WebView 和 Tauri IPC；提交后输入框立即清空。Rust 侧按限制解析并持久化账号，不自动扫描 Cockpit Tools 目录，也不提供文件导入。
 
-用户点击单账号、选中账号或全部账号刷新后，应用才按 `docs/DECISIONS.md` §D-012 访问固定 Cursor 第一方端点。点击即为本次请求授权，不再二次确认。批量刷新逐账号顺序执行；一个账号或可选数据源失败不影响其他账号。
+用户点击单账号、选中账号或全部账号刷新后，应用才按 `docs/DECISIONS.md` §D-012、§D-020 访问固定 Cursor 第一方端点。点击即为本次请求授权，不再二次确认。批量刷新逐账号顺序执行；一个账号或可选数据源失败不影响其他账号。
 
 ## 固定网络白名单
 
@@ -20,11 +20,11 @@ POST https://api2.cursor.sh/aiserver.v1.AuthService/GetUserMeta
 GET  https://api2.cursor.sh/auth/full_stripe_profile
 GET  https://api2.cursor.sh/auth/stripe_profile
 GET  https://cursor.com/api/usage-summary
-POST https://cursor.com/api/dashboard/get-sand-usage-status
+POST https://api2.cursor.sh/aiserver.v1.DashboardService/GetSandUsageStatus
 POST https://cursor.com/api/dashboard/get-sand-access-status
 ```
 
-OAuth Token 端点只在用户手动刷新且 Access Token 不可解析或五分钟内过期时使用；失败后继续尝试旧 Access Token。`usage-summary` 是 Total、Auto + Composer、API、On-Demand 和计费周期的唯一实时真源。两条 Sand 端点延续已经确认的 `Origin: https://cursor.com` 和 WorkOS Cookie 规则，并作为独立可选数据源。
+OAuth Token 端点只在用户手动刷新且 Access Token 不可解析或五分钟内过期时使用；失败后继续尝试旧 Access Token。`usage-summary` 是 Total、Auto + Composer、API、On-Demand 和计费周期的唯一实时真源。Sand 用量端点使用 Access Token 的 Bearer 认证、Connect 协议版本和 `{}` 请求体；Sand 资格端点使用已经确认的 `Origin: https://cursor.com` 与 WorkOS Cookie。两者都是独立可选数据源。
 
 旧的 `DashboardService/GetCurrentPeriodUsage` 已由 D-012 取消，不得继续加入生产白名单或作为 Free 账号 fallback。
 

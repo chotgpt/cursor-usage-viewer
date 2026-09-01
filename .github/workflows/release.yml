@@ -8,21 +8,30 @@ permissions: { contents: read }
 jobs:
   validate:
     runs-on: ubuntu-22.04
-    outputs: { tag: "${{ steps.version.outputs.tag }}" }
+    outputs: { tag: "${{ steps.candidate.outputs.tag }}" }
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with: { ref: "${{ inputs.tag || github.ref }}" }
+        with: { ref: "${{ inputs.tag || github.ref }}", fetch-depth: 0 }
+      - id: candidate
+        name: Bind Draft candidate to main before running repository scripts
+        env:
+          TAG: "${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+        shell: bash
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test "$(git rev-parse "$TAG^{commit}")" = "$(git rev-parse HEAD)"
+          git fetch origin main --no-tags
+          git merge-base --is-ancestor HEAD origin/main
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: 22, cache: npm }
       - run: npm ci
       - run: npm run check:version && npm test && npm run test:release && npm run build
-      - id: version
+      - name: Verify version equals immutable candidate tag
         shell: bash
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
-          test "$TAG" = "v$VERSION"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          test "${{ steps.candidate.outputs.tag }}" = "v$VERSION"
   build:
     needs: validate
     permissions: { contents: write }
@@ -91,6 +100,8 @@ jobs:
         run: |
           find assets manifests -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
           gh release upload "$TAG" SHA256SUMS.txt --clobber
+          TAG_SHA=$(git rev-parse "$TAG^{commit}")
+          gh release edit "$TAG" --target "$TAG_SHA" --draft --prerelease=false --verify-tag
           gh release view "$TAG" --json isDraft,isPrerelease,assets > final-release.json
           node -e "const r=require('./final-release.json');const n=new Set(r.assets.map(x=>x.name));const required=['latest.json','SHA256SUMS.txt'];for(const x of required)if(!n.has(x))process.exit(1);if(!r.isDraft||r.isPrerelease)process.exit(1)"
       - name: Attest public release assets

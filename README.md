@@ -1,8 +1,8 @@
 # Cursor Usage Viewer / Cursor 额度查看器
 
-An unofficial, open-source desktop workspace for viewing and managing Cursor account usage on Windows, macOS and Linux. It is not affiliated with or endorsed by Cursor or Anysphere.
+An unofficial, non-commercial source-available desktop workspace for viewing and managing Cursor account usage on Windows, macOS and Linux. It is not affiliated with or endorsed by Cursor or Anysphere.
 
-一个非官方开源桌面工具，用于在 Windows、macOS 和 Linux 管理多个 Cursor 账号并查看额度；与 Cursor / Anysphere 无隶属或背书关系。
+一个非官方、非商业的公开源码桌面工具，用于在 Windows、macOS 和 Linux 管理多个 Cursor 账号并查看额度；与 Cursor / Anysphere 无隶属或背书关系。
 
 ## Features / 功能
 
@@ -12,6 +12,16 @@ An unofficial, open-source desktop workspace for viewing and managing Cursor acc
 - Signed stable updates with a Draft-first three-platform release process.
 - 高密度额度卡、多账号粘贴导入、存盘恢复、筛选分页和完整敏感导出。
 - 仅在用户点击后读取本机 Cursor 或查询额度；不后台刷新额度。
+
+## Screenshots / 截图
+
+Dark / 深色：
+
+![Cursor accounts dark theme](tests/visual/accounts.spec.ts-snapshots/cursor-accounts-dark-chromium-win32.png)
+
+Light / 浅色：
+
+![Cursor accounts light theme](tests/visual/accounts.spec.ts-snapshots/cursor-accounts-light-chromium-win32.png)
 
 ## Security / 安全
 
@@ -38,8 +48,10 @@ The first release uses Tauri updater signatures but no Windows code-signing cert
 
 首版启用 Tauri updater 签名，但不购买 Windows 代码签名且不做 Apple notarization，因此可能出现 SmartScreen / Gatekeeper 提示。
 
-## Clean-room reference
+## Cockpit-derived UI / Cockpit 派生界面
 
-Cockpit Tools was consulted at fixed commit `a0508ae815e104e931dae515389e680840008367` only for observable behavior and information structure. This project independently implements its own code, styling, workflow, branding, icon and wording. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+The Cursor account workspace, shared account controls, classic sidebar and light/dark themes are adapted from [jlcodes99/cockpit-tools](https://github.com/jlcodes99/cockpit-tools) at fixed commit `a0508ae815e104e931dae515389e680840008367`. This derivative removes unrelated providers and connects the adapted UI to this project's Cursor-only storage, usage and release systems. Grok/Sand is an additional fifth quota. Source paths and modifications are recorded in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-MIT licensed. Contributions are welcome; read [CONTRIBUTING.md](CONTRIBUTING.md) and report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
+Cursor 账号工作区、共享账号控件、经典侧栏及深浅主题派生自上述固定版本的 Cockpit Tools；本项目删除其他 Provider，并把派生界面连接到 Cursor-only 的存储、额度和发布系统，另增加 Grok/Sand 第五额度。来源文件与修改记录见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+This project is licensed under **CC BY-NC-SA 4.0**: attribution is required, use is non-commercial only, and adaptations must be shared under the same license. 本项目采用 **CC BY-NC-SA 4.0**：必须署名、仅限非商业使用，衍生作品须以相同许可共享。Contributions are welcome; read [CONTRIBUTING.md](CONTRIBUTING.md) and report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).

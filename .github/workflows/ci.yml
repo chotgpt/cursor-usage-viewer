@@ -17,6 +17,17 @@ jobs:
       - run: npm ci
       - run: npm run check:version
       - run: npm test
+      - name: Install visual test browser
+        run: npx playwright install chromium
+      - name: Visual regression gate
+        run: npm run test:visual
+      - name: Upload visual regression report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: visual-regression-report
+          path: playwright-report/
+          retention-days: 14
       - run: npm run test:release
       - run: npm run build
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check

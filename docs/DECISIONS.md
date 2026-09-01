@@ -1,6 +1,6 @@
 # Cursor 额度查看器决策记录
 
-更新时间：2026-08-30
+更新时间：2026-08-31
 
 ## D-001 产品范围与技术栈
 
@@ -137,3 +137,86 @@ Cockpit Tools 只作为固定提交 `a0508ae815e104e931dae515389e680840008367` �
 更新检查访问本项目固定 GitHub Release endpoint，不携带 Cursor 凭据；它是“启动不访问 Cursor”的例外，而不是访问任意网络的授权。详细权衡见 `docs/adr/0002-github-releases-and-signed-updater.md`。
 
 本决策取代 D-011/D-012 中“侧栏不提供设置入口”和“启动绝对不联网”的旧表达：仍然禁止启动或后台访问 Cursor、续期 Token、读取本机数据库或刷新额度；只允许按更新设置访问本项目固定 GitHub updater endpoint。
+
+## D-015 AI 开发与 stable 发布双重人工门禁
+
+用户于 2026-08-31 指出：自动化测试、构建和 Draft 资产通过不等于产品已验收，并要求按严格 AI 开发流程重做发布工作流。此后必须区分以下状态：代码自动化验证通过、候选安装包构建通过、用户人工产品验收通过、stable 获准发布。任何前一状态都不能被表述为后一状态。
+
+采用用户确认的“单人双确认”发布模型：
+
+1. AI/Agent 只能实现、测试、提交 PR、生成 Draft 候选和汇报证据；不得代替仓库 owner 运行产品验收、填写或勾选 Release Acceptance Issue、添加 `release-approved` 标签、关闭验收 Issue、批准 `stable-release` Environment 或发布 stable。
+2. `main` 继续强制 PR、批准和必需检查。最终候选 tag 必须对应 `main` 中已通过 CI 与 CodeQL 的精确提交；tag 或代码变化立即使旧验收失效。
+3. `v*` 只生成签名 Draft。Draft 的平台资产、Tauri 签名、target manifests、`latest.json`、SHA256 和 provenance attestation 全部齐全后，才可开始针对该精确 tag/SHA 的人工验收。
+4. 仓库 owner 必须亲自运行源码和候选包，完成 UI、核心功能、持久化、安全边界、已知问题以及计划 §17.4 的真实隔离 updater E2E，并在专用 Issue 中提供证据、勾完稳定的机器可读验收项、添加 `release-approved` 标签并关闭 Issue。
+5. stable workflow 的预检必须确认不存在打开的 `release-blocker`，并再次绑定 Issue、tag、SHA、required checks、Draft 状态、资产/签名/manifest、实际下载字节 SHA256 和 attestation；输入确认词必须精确为 `PUBLISH <tag>`。
+6. 即使预检通过，发布 job 仍必须等待受保护的 `stable-release` GitHub Environment 第二次人工批准，且禁止管理员绕过；批准后重新执行全部可变状态检查才允许将 Draft 发布。
+7. 未来发布启用 GitHub immutable releases；发布后 tag 和资产不得改写，并由 published smoke 再验证公开更新清单。紧急修复使用新 patch 版本，不覆盖已发布资产。
+
+当前 `v0.1.0` Draft 在用户实际产品验收和本决策落地之前生成，只是历史构建证据，不具备 stable 发布资格。后续界面或功能修改完成后必须使用新候选 tag 重新构建和验收，不得沿用旧 Draft 的自动化结论。
+
+决策依据：用户选择“单人双确认”；GitHub 官方关于 AI 代码需人工审查、受保护 Environment、immutable releases 与 artifact attestations 的文档；NIST SSDF PW.7/PS.3 的人工评审、自动分析和发布完整性原则；Tauri v2 updater 强制签名规范。
+
+## D-016 Cockpit 视觉真源、当前账号置顶与视觉验收门
+
+用户于 2026-08-31 对源码调试版进行人工查看后，明确判定现有“深色精简版”界面不合格，并要求以其提供的 Cockpit Tools Cursor 账号页截图作为 1280×800 桌面端视觉真源，重做整体页面。此决定覆盖 D-012 中“只复用信息层级、继续沿用第 3 套精简视觉”的旧口径，但不改变 clean-room、MIT 与非官方项目边界：本项目独立实现相同的页面结构、空间关系、密度和视觉结果，不复制 Cockpit 源码、CSS、品牌、资源或文案。
+
+固定视觉结构包括：完整高度的深蓝渐变侧栏；顶部展开的蓝色说明面板；单行圆角工具栏；独立的全选条；默认三列高密度纵向账号卡片；卡片中的身份、当前/套餐徽章、Auth ID、标签、Total、Auto + Composer、API、On-Demand、Sand、更新时间和底部操作区。本项目没有的 Cockpit 能力不得用无效按钮伪造，现有读取本机、粘贴导入、刷新、隐私、导出、删除等真实能力映射到相同结构。
+
+用户主动读取本机 Cursor 当前账号后，该账号在全部筛选结果和分页中始终排在第一，其优先级高于邮箱、套餐、最近使用时间及升降序选择；其余账号继续按用户选择的规则排序。启动时仍不得自动读取 Cursor 数据库。
+
+视觉回归使用仓库内固定假账号、固定 Chromium、1280×800 视口、确定字体与禁用动画的 Playwright 截图基线；PR CI 中像素比较失败即阻塞。基线变更必须作为可见代码变更接受审核，不能由失败测试自动覆盖。自动视觉比较只证明基线未漂移，不等于用户人工验收；Release Acceptance Issue 必须记录 owner 对源码调试版和精确候选 tag/SHA 的界面截图人工确认，未确认不得发布 stable。
+
+决策依据：用户本轮提供的当前实现与 Cockpit Tools 参考截图及“整体照抄”“本机当前放第一个”“要加上视觉门验收”的最新明确要求；Cockpit Tools 固定提交 `a0508ae815e104e931dae515389e680840008367` 的 `src/utils/currentAccountSort.ts::compareCurrentAccountFirst` 与 `src/pages/CursorAccountsPage.tsx` 排序调用链；Playwright 官方视觉比较与 CI 文档。
+
+## D-017 CC BY-NC-SA 派生许可与 Cockpit UI 定向移植
+
+用户于 2026-08-31 在获知 Cockpit Tools 固定参考提交的许可证据后，明确决定把本项目从 MIT 改为 **Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International（CC BY-NC-SA 4.0）**，并选择“定向移植 UI”而非整仓 fork。此决定取代 D-007、D-013、D-016 及 `AGENTS.md` 中禁止复制 Cockpit 源码/CSS 的 clean-room 限制；安全、隐私、非官方身份、Cursor-only 产品范围和 stable 双重人工发布门继续有效。
+
+派生实现边界如下：
+
+1. 直接复用 Cockpit Tools 固定提交 `a0508ae815e104e931dae515389e680840008367` 中与经典侧栏、Cursor 账号页、共享账号组件、设置页深浅主题、主题 token 和相关 CSS 有关的代码；保留上游作者、仓库、固定提交、原文件路径、许可与修改说明。
+2. 不整仓 fork，不引入或保留其他 Provider、API 中转站、sidecar、OAuth 多平台入口、无关页面、权限或命令。产品外壳只显示 Cursor 与设置。
+3. 当前仓库已经验证的 Cursor 本地读取、Cockpit JSON 导入、持久化、刷新、导出、删除、updater 和严格发布流程继续作为实现基础；派生 UI 通过适配层调用这些能力，不重新引入 Cockpit 的后端和发布系统。
+4. UI 的深色与浅色模式、尺寸、间距、信息层级、组件形态和主题切换行为以固定 Cockpit 实现为源；Grok/Sand 是在 Cockpit 四组核心额度之外增加的第五组额度，其余无对应真实能力的按钮和入口删除。
+5. 本项目及派生分发仅允许非商业使用，必须署名并以相同许可共享。根 `LICENSE`、包元数据、README、应用关于页、发行说明和第三方声明必须一致，不得继续宣称 MIT；专利和商标权不因该许可授予。
+6. 视觉门至少覆盖 1280×800 的深色和浅色固定假数据基线、当前账号第一、三列卡片和 Grok/Sand 第五额度；自动基线通过不替代用户对精确候选版本的人工视觉验收。
+
+决策依据：用户对四个产品问题的最终回答；Cockpit Tools 固定提交的 `src-tauri/Cargo.toml:6`（`license = "CC-BY-NC-SA-4.0"`）与 `README.md` 许可证章节；CC BY-NC-SA 4.0 官方法律文本关于非商业、署名和相同方式共享的条款；本地代码面调查显示整仓包含大量与 Cursor-only 产品无关的页面、服务、命令和 sidecar。
+
+## D-018 Grok/Sand 套餐与资格展示
+
+用户于 2026-08-31 根据运行截图明确将 `grokPlanLabel` 的界面标签从“来源”改为“套餐”。Grok/Sand 卡片扩展使用 Cursor 返回的原始 `grokPlanLabel` 作为套餐显示值；字段缺失时显示“未知”，不得从 `accessGranted`、`isPaidTrialPlan` 或其他布尔字段猜测 Heavy/Frok/Grok 套餐。访问资格作为独立状态徽章显示“可访问 / 不可访问 / 状态未知”；`blockReason` 作为独立受限原因警示，不与套餐或额度混写。整个 Grok/Sand 扩展使用紧凑的独立分组框，与 Cockpit 原四组额度形成清楚但不过度抢眼的层级；重置时间精确显示到分钟，并与用量进度保持独立层级。
+
+决策依据：用户最新明确要求“可以把来源改成套餐”，并针对现有 Grok/Sand 区块截图要求继续优化 UI/UX；此决定细化 D-006、D-012 和 D-017 的第五额度展示，不改变 Cursor 第一方字段是真源、缺失值不猜测的边界。
+
+## D-019 Grok/Sand 组合状态与过期重置时间
+
+用户于 2026-08-31 否决把 `usagePercent`、`grokPlanLabel`、`accessGranted`、`blockReason` 与 `nextResetTimestampUtc` 机械平铺为第五个同构核心额度。Grok/Sand 继续保留为独立于四组核心额度的附加状态：用量、套餐、访问资格、受限原因和数据新鲜度各守其真实含义，但界面必须按完整组合状态组织信息层级，不能让“资格可访问”被误读为“仍有剩余额度”，也不能让用量颜色代替资格状态。
+
+当 `nextResetTimestampUtc` 晚于当前时间时，界面可显示精确到分钟的下次重置时间和中性倒计时；当该时间已经过期时，只显示“重置时间待刷新”，不再显示旧时间，也不得显示“可重置”或暗示用户具备主动重置能力。字段缺失或无法解析时保持未知，不猜测新的时间。
+
+令牌续期、账号资料、订阅资料、核心额度、Sand 用量与 Sand 资格必须能以不包含 Token、Cookie、邮箱、响应正文或完整 URL 的阶段标识分别归属。续期或资料阶段失败但核心额度成功时，只显示“核心额度已更新，账号资料未完全更新”，不得冒充核心失败；一次核心成功必须显式清除过去持久化的核心错误。部分成功时保留各自最后成功值，但界面必须标明未更新或陈旧状态，不得把不同时间的新旧值包装成同一份当前状态。自动测试与视觉契约应覆盖 `100% + 资格可访问 + 重置时间已过期`、不可访问与受限原因、未知字段及 Sand 部分失败；不得继续用“五个同构额度”“固定不超过 80px”或“必须一屏塞下所有卡片”反向约束产品表达。
+
+决策依据：用户对真实开发窗口中“Grok-Bot / 100.0% / 套餐 Grok Bot Plan / 可访问 / 过期重置时间（可重置）”组合的明确否决；本轮四方独立审查对字段语义、UI、UX 与错误归属的共同结论；用户对过期时间最终选择“只显示待刷新”。
+
+## D-020 Grok/Sand 用量恢复真机确认的 Bearer 链路
+
+用户于 2026-08-31 在确认旧实现能够正常取得 Grok/Sand 额度后，明确要求当前产品直接采用 `Cusor-bot-sand` 的已验证取数方式。本决定取代 D-012 第 5 项中 Sand 用量使用 `cursor.com/api/dashboard/get-sand-usage-status` 会话 Cookie 端点的旧口径；核心四组额度与 Sand 资格的来源不变。
+
+一次手动刷新中的 Sand 子链路固定为：
+
+1. Sand 用量调用 `POST https://api2.cursor.sh/aiserver.v1.DashboardService/GetSandUsageStatus`，使用 `Authorization: Bearer <accessToken>`、`Content-Type: application/json`、`Connect-Protocol-Version: 1`、普通浏览器 User-Agent 与 `{}` 请求体。
+2. Sand 资格继续调用 `POST https://cursor.com/api/dashboard/get-sand-access-status`，使用 `WorkosCursorSessionToken` 会话 Cookie、`Origin: https://cursor.com`、JSON 请求头与 `{}` 请求体。
+3. `GET https://cursor.com/api/usage-summary` 继续作为 Total、Auto + Composer、API、On-Demand 四组核心额度真源；它的失败与上述两个 Sand 阶段分别归属，不得因核心 403 丢弃成功取得的 Sand 数据，也不得将 Sand 成功表述为核心额度刷新成功。
+
+生产白名单加入精确的 `GetSandUsageStatus` api2 路径并移除旧 Sand 用量 dashboard 路径；仍禁止重定向、查询参数、片段和任意目标。`GetCurrentPeriodUsage` 继续不在生产白名单，本决定没有恢复该旧核心额度端点。
+
+决策依据：用户最新明确要求“`C:\Users\Administrator\Downloads\Cusor-bot-sand` 是怎么获取的，直接抄”；该项目 `sand_api.py::fetch_usage` 的真机确认请求契约；本项目对外部请求最小白名单与分阶段脱敏错误边界。
+
+## D-021 Sand 卡片采用百分比环与右侧双行信息
+
+用户于 2026-09-01 在三轮草图中最终选择 B2 方案。网格账号卡片的 Sand 扩展不再显示可见标题“Grok / Sand”，改为左侧百分比环与右侧双行信息：环内显示 `usagePercent` 和“本周期已用”（陈旧快照显示“上次已用”）；右侧第一行按“套餐 — 原始 `grokPlanLabel` — 资格状态文字”横向排列，第二行按“重置 — 月日时分 — 中性倒计时”横向排列，重置信息不得再作为整块底栏。资格状态不使用胶囊徽章或图标抢占套餐信息层级。受限原因、部分失败与陈旧状态仍须在右侧信息区独立显示，不得为了草图的正常状态而丢失 D-019 已确认的组合状态语义。
+
+百分比环只表达用量，不替代资格状态文字；`100% + 资格可访问` 仍必须同时成立并清楚可辨。未来重置时间继续精确到分钟，倒计时大于等于一天时显示“约 X天 X小时”，小于一天时显示“约 X时 X分钟”；过期时只显示“待刷新”，缺失或无效时显示“未知”。列表模式可保留更适合表格密度的紧凑文本表达，但套餐、用量、资格、受限原因和重置状态的语义必须与网格卡片一致。
+
+决策依据：用户先要求“也用百分比显示额度”“去掉左上角的 Grok / Sand，改成套餐信息”，随后选择百分比优先的 B 方案，并最终明确选择第二张 B2 草图开始开发；本决定细化 D-018、D-019，不改变字段真源、未知值不猜测和错误分阶段归属。
