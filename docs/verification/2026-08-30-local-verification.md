@@ -1,8 +1,32 @@
 # Verification record — 2026-08-30/31
 
-Scope: repository code, isolated fixtures, GitHub-hosted runners and the public `chotgpt/cursor-usage-viewer` Draft Release only. No real Cursor database, token, clipboard, application data, Cursor request, user process or installed application was accessed.
+Scope: repository code, isolated fixtures, GitHub-hosted runners and the public `chotgpt/cursor-usage-viewer` Draft Release. Except for the explicitly user-authorized, status-only live diagnosis recorded below, no real Cursor database, token, clipboard, application data, Cursor request, user process or installed application was accessed.
 
 ## Local verification passed
+
+### 2026-09-01 user-authorized live 403 diagnosis
+
+- With the user's explicit authorization, one account already stored by the application was used for status-only differential probes. No token, cookie, email or response body was printed or recorded.
+- With the same account, URL and application-layer request contract, the production `reqwest` client configured with `rustls` returned HTTP 403 while Windows Schannel returned HTTP 200. Adding `Origin`, `Referer` and browser fetch headers did not change the Schannel result.
+- Restoring `reqwest`'s Cockpit-compatible native TLS defaults made both the minimal request and the real `CursorUsageProvider::refresh_account` chain succeed. The final live provider result reported `core_live=true`, `core_error=false`, no auxiliary errors and no Sand usage/access errors.
+- This live result verifies the current saved account and Windows development environment only. It does not replace user UI acceptance or multi-platform candidate-package E2E.
+
+### 2026-09-01 final Cockpit comparison follow-up
+
+- Three independent read-only reviewers rechecked protocol/error ownership, engineering behavior and UI/visual behavior against Cockpit commit `a0508ae815e104e931dae515389e680840008367`, with current-project and upstream file/line evidence.
+- OAuth failures now remain exclusively in auxiliary diagnostics even when `usage-summary` also fails; the core error preserves the actual core stage/status. On-Demand now preserves Cockpit's per-field team fallbacks, cents-to-dollar display, unlimited individual usage and disabled state. Imported cached usage reuses the same mapper.
+- Settings load/modify/save operations are serialized in application state. Full export now has atomic saving, copied-path feedback and an explicit reveal-in-folder command limited to the most recently saved export path. English provider failures no longer expose untranslated Chinese backend diagnostics.
+- Full credential exports no longer create an undisclosed adjacent `.bak`; the regression test covers overwriting an existing export while producing only the user-selected file. Remembered window coordinates are restored only when they still land on an available monitor. A failed updater "skip this version" settings write keeps the update visible and reports the persistence failure instead of silently dismissing it.
+- The post-update version dialog was rebuilt on the shared modal shell after screenshot inspection exposed its missing backdrop/layout. Added visual coverage for 900×600 list scrolling, English provider errors, the version-change dialog and saved-export actions; all new screenshots were inspected before a final non-updating run.
+- Final local results after the follow-up fixes: React/Vitest 57/57; Rust 45/45; Playwright visual 33/33 on the final non-updating rerun; production build, 28 release tests, version sync, Rustfmt, Clippy with `-D warnings`, credential-pattern gate for 151 tracked files and `git diff --check` passed. The added Cursor sorting contract locks Cockpit's exact option order, default direction, current-account priority, Credits comparison, cycle-end comparison and missing-reset placement, with a separately inspected expanded-menu baseline.
+- These mock/static checks prove request construction and state behavior only. They do not prove that a real Cursor account or Cursor's edge/WAF accepts `usage-summary`; no real credential or Cursor request was used.
+
+### 2026-08-31 Cockpit parity and 403 follow-up
+
+- Mocked request-contract tests pin `usage-summary` to Cockpit's fixed `GET` method, WorkOS session Cookie, JSON Accept header and macOS browser User-Agent; Sand usage separately pins the `Cusor-bot-sand` Bearer/Connect request. These tests do not claim that a real Cursor account accepts the request.
+- A two-refresh storage regression proves a persisted core HTTP 403 is cleared after the next successful core refresh. Optional OAuth/profile failures remain separately visible without turning a successful core refresh into a core failure.
+- React behavior coverage includes batch deletion confirmation, persisted tag editing, tag-filtered grouping, unavailable `localStorage`, modal focus trapping/restoration and independent metadata/Sand/core outcomes.
+- Visual coverage includes English, dark/light themes, 1280×800, 900×600, long Sand plans/reasons, light modal, tag editing/grouping and batch deletion. Candidate screenshots were inspected before the final non-updating visual run.
 
 - React/Vitest: 9 tests across account workspace, one-click refresh, paste import, masked export, version-change notes, updater scheduling, retry and target selection.
 - Rust: 21 tests across storage/recovery/deletion, Cockpit-compatible import, three-platform Cursor DB paths, fixed Cursor refresh chain, Free/non-JSON behavior, desktop settings, updater settings and Linux package safety.
