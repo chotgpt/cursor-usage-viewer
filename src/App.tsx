@@ -293,7 +293,9 @@ function SandQuota({ language, sand }: { language: Language; sand: CursorAccount
   const reset = sandCardReset(sand?.nextResetTimestampUtc, language, Boolean(sand?.usageError));
   const usageLabel = sand?.usageError ? (presentation.usagePercent == null ? localized(language, "未更新", "Not updated") : localized(language, "上次已用", "Last used")) : localized(language, "本周期已用", "Period used");
   const usageValue = presentation.usagePercent == null ? "—" : percent(presentation.usagePercent, language);
+  const usageNumber = presentation.usagePercent == null ? "—" : presentation.usagePercent.toFixed(1);
   const usageTone = quotaTone(presentation.usagePercent);
+  const accessText = sand?.accessError ? localized(language, "未更新", "Not updated") : sand?.accessGranted === true ? localized(language, "可访问", "Granted") : sand?.accessGranted === false ? localized(language, "不可访问", "Blocked") : localized(language, "未知", "Unknown");
   return <div className={`sand-status-panel ${presentation.incomplete ? "incomplete" : ""}`} role="group" aria-label={localized(language, "套餐额度状态", "Plan quota status")}>
     <div
       className={`sand-quota-ring ${usageTone} ${sand?.usageError ? "stale" : ""}`}
@@ -301,8 +303,19 @@ function SandQuota({ language, sand }: { language: Language; sand: CursorAccount
       title={presentation.usage}
       aria-label={`${usageLabel} ${usageValue}`}
     >
+      <svg className="sand-quota-ring-svg" viewBox="0 0 82 82" aria-hidden="true">
+        <circle className="sand-quota-track" cx="41" cy="41" r="34" pathLength="100"/>
+        {(presentation.usagePercent ?? 0) > 0 && <circle
+          className="sand-quota-progress"
+          cx="41"
+          cy="41"
+          r="34"
+          pathLength="100"
+          style={{ strokeDasharray: `${presentation.usagePercent} 100` }}
+        />}
+      </svg>
       <div className="sand-quota-ring-content">
-        <strong className="sand-quota-ring-value">{usageValue}</strong>
+        <strong className="sand-quota-ring-value">{usageNumber}{presentation.usagePercent != null && <span className="sand-quota-ring-unit">%</span>}</strong>
         <span>{usageLabel}</span>
       </div>
     </div>
@@ -310,7 +323,7 @@ function SandQuota({ language, sand }: { language: Language; sand: CursorAccount
       <div className="sand-detail-row sand-plan-row">
         <span className="sand-detail-label">{presentation.planLabel}</span>
         <strong className="sand-detail-value" title={presentation.plan}>{presentation.plan}</strong>
-        <span className={`sand-access-badge ${presentation.accessTone}`}>{presentation.access}</span>
+        <span className={`sand-access-text ${presentation.accessTone}`} title={presentation.access} aria-label={presentation.access}>{accessText}</span>
       </div>
       <div className="sand-detail-row sand-reset-row">
         <span className="sand-detail-label">{reset.label}</span>
@@ -435,7 +448,7 @@ function sandResetRelative(remaining: number, language: Language) {
   const days = Math.floor(totalHours / 24);
   const hours = totalHours % 24;
   const minutes = Math.floor((remaining % 3_600_000) / 60_000);
-  return language === "en" ? (days > 0 ? `about ${days}d ${hours}h` : `about ${hours}h ${minutes}m`) : (days > 0 ? `约 ${days}天 ${hours}小时` : `约 ${hours}小时 ${minutes}分`);
+  return language === "en" ? (days > 0 ? `about ${days}d ${hours}h` : `about ${hours}h ${minutes}m`) : (days > 0 ? `约 ${days}天 ${hours}小时` : `约 ${hours}时 ${minutes}分钟`);
 }
 function parseExternalTimestamp(value: string) { const numeric = /^\d+$/.test(value) ? Number(value) : null; const timestamp = numeric == null ? new Date(value).getTime() : numeric < 1_000_000_000_000 ? numeric * 1000 : numeric; return Number.isFinite(timestamp) ? timestamp : null; }
 function maskJson(json: string) { try { const visit = (value: unknown): unknown => Array.isArray(value) ? value.map(visit) : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).map(([key, item]) => [key, visit(item)])) : typeof value === "string" ? "••••••••" : value; return JSON.stringify(visit(JSON.parse(json)), null, 2); } catch { return "••••••••"; } }

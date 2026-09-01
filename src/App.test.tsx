@@ -172,7 +172,10 @@ describe("multi-account workspace", () => {
     expect(within(panel).queryByText("Grok / Sand")).not.toBeInTheDocument();
     expect(panel.querySelector(".sand-quota-ring")).toHaveStyle("--sand-progress: 64.5%");
     expect(panel.querySelector(".sand-quota-ring-value")).toHaveTextContent("64.5%");
-    expect(panel.querySelector(".sand-plan-row")).toHaveTextContent("套餐Grok Bot Plan资格可访问");
+    expect(panel.querySelector(".sand-plan-row")).toHaveTextContent("套餐Grok Bot Plan可访问");
+    expect(panel.querySelector(".sand-plan-row .sand-access-text")).toHaveTextContent("可访问");
+    expect(panel.querySelector(".sand-plan-row .sand-access-text")).toHaveAccessibleName("资格可访问");
+    expect(panel.querySelector(".sand-plan-row .sand-access-badge")).not.toBeInTheDocument();
     expect(panel.querySelector(".sand-reset-row")).toHaveTextContent("重置");
     expect(screen.getByText("PRO")).toHaveClass("tier-badge", "pro");
     expect(screen.queryByText("pro")).not.toBeInTheDocument();
@@ -248,8 +251,8 @@ describe("multi-account workspace", () => {
 
     const details = screen.getByRole("group", { name: "套餐额度状态" });
     expect(details).not.toHaveTextContent("Grok / Sand");
-    expect(details.querySelector(".sand-plan-row")).toHaveTextContent("套餐Heavy Plan资格不可访问");
-    expect(details).toHaveTextContent("资格不可访问");
+    expect(details.querySelector(".sand-plan-row")).toHaveTextContent("套餐Heavy Plan不可访问");
+    expect(details).toHaveTextContent("不可访问");
     expect(details).toHaveTextContent("访问受限 PAYWALL");
     expect(details.querySelector(".sand-reset-row")).toHaveTextContent("重置09-04 17:38约 4天 1小时");
     expect(screen.queryByText("有额度")).not.toBeInTheDocument();
@@ -274,7 +277,7 @@ describe("multi-account workspace", () => {
     const details = screen.getByRole("group", { name: "套餐额度状态" });
     expect(details.querySelector(".sand-quota-ring-value")).toHaveTextContent("100.0%");
     expect(details.querySelector(".sand-quota-ring")).toHaveTextContent("本周期已用");
-    expect(details).toHaveTextContent("资格可访问");
+    expect(details).toHaveTextContent("可访问");
     expect(details.querySelector(".sand-reset-row")).toHaveTextContent("重置待刷新");
     expect(details).not.toHaveTextContent("可重置");
     expect(details).not.toHaveTextContent("2026-08-31 17:00");
@@ -298,6 +301,23 @@ describe("multi-account workspace", () => {
     expect(details).not.toHaveTextContent("1970");
   });
 
+  it("formats a Sand reset countdown under one day as hours and minutes", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(new Date("2026-09-04T03:16:00Z").getTime());
+    listedAccounts = [{
+      ...account(),
+      sand: {
+        ...account().sand!,
+        nextResetTimestampUtc: "2026-09-04T09:38:00Z",
+      },
+    }];
+    render(<App />);
+    await screen.findByText("one@example.invalid");
+
+    const reset = screen.getByRole("group", { name: "套餐额度状态" }).querySelector(".sand-reset-row");
+    expect(reset).toHaveTextContent("约 6时 22分钟");
+    expect(reset).not.toHaveTextContent("6小时 22分");
+  });
+
   it("marks the failed Sand source without discarding the other source", async () => {
     vi.spyOn(Date, "now").mockReturnValue(new Date("2026-08-31T09:38:00Z").getTime());
     listedAccounts = [{
@@ -318,11 +338,11 @@ describe("multi-account workspace", () => {
     const details = screen.getByRole("group", { name: "套餐额度状态" });
     expect(details.querySelector(".sand-quota-ring-value")).toHaveTextContent("42.0%");
     expect(details.querySelector(".sand-quota-ring")).toHaveTextContent("本周期已用");
-    expect(details).toHaveTextContent("资格状态未更新");
+    expect(details).toHaveTextContent("未更新");
     expect(details).toHaveTextContent("上次受限原因 PAYWALL");
     expect(details.querySelector(".sand-reset-row")).toHaveTextContent("重置09-04 17:38约 4天 0小时");
     expect(details).not.toHaveTextContent("访问受限 PAYWALL");
-    expect(details).not.toHaveTextContent("资格可访问");
+    expect(details).not.toHaveTextContent("可访问");
   });
 
   it("marks the cached Sand plan as stale when the usage source fails", async () => {
@@ -361,7 +381,7 @@ describe("multi-account workspace", () => {
 
     const details = screen.getByRole("group", { name: "套餐额度状态" });
     expect(details.querySelector(".sand-plan-row")).toHaveTextContent("套餐未知");
-    expect(details).toHaveTextContent("资格未知");
+    expect(details).toHaveTextContent("未知");
     expect(screen.queryByText(/Heavy|Frok/i)).not.toBeInTheDocument();
   });
 
