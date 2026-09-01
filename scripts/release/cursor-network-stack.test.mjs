@@ -16,7 +16,9 @@ test("About links stay inside the fixed project opener allowlist", async () => {
   const opener = capability.permissions.find((permission) => permission?.identifier === "opener:allow-open-url");
   const urls = opener?.allow?.map((entry) => entry.url) ?? [];
 
-  assert.ok(urls.includes("https://github.com/chotgpt/cursor-usage-viewer"));
-  assert.ok(urls.includes("https://github.com/chotgpt/cursor-usage-viewer/releases"));
-  assert.ok(urls.includes("https://github.com/chotgpt/cursor-usage-viewer/releases/*"));
+  assert.deepEqual(urls, [
+    "https://github.com/chotgpt/cursor-usage-viewer",
+    "https://github.com/chotgpt/cursor-usage-viewer/releases",
+    "https://github.com/chotgpt/cursor-usage-viewer/releases/*",
+  ]);
 });
