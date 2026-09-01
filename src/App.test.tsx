@@ -19,6 +19,14 @@ const mockedSave = vi.mocked(save);
 let versionChange: { fromVersion: string; toVersion: string; notes: string } | null = null;
 let listedAccounts: CursorAccountView[] = [];
 
+function localSandResetStamp(value: string) {
+  const numeric = /^\d+$/.test(value) ? Number(value) : null;
+  const timestamp = numeric == null ? new Date(value).getTime() : numeric < 1_000_000_000_000 ? numeric * 1000 : numeric;
+  const date = new Date(timestamp);
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 function account(id = "cursor_one", email = "one@example.invalid"): CursorAccountView {
   return { id, email, authId: `auth0|${id}`, name: null, tags: ["500 credits"], membershipType: "pro", subscriptionStatus: "active", signUpType: "Auth_0", status: null, statusReason: null, source: "cockpit-tools", hasAccessToken: true, hasRefreshToken: true, isCurrent: false,
     coreUsage: { total: { enabled: true, used: 20, limit: 100, remaining: 80, percentUsed: 20 }, autoComposer: { enabled: true, used: null, limit: null, remaining: null, percentUsed: 11 }, api: { enabled: true, used: null, limit: null, remaining: null, percentUsed: 100 }, onDemand: { enabled: false, used: 0, limit: null, remaining: null, percentUsed: null }, billingCycleStart: "2026-08-20T00:00:00Z", billingCycleEnd: "2026-09-20T00:00:00Z", source: "live", updatedAt: 1788000000, error: null },
@@ -265,7 +273,7 @@ describe("multi-account workspace", () => {
     expect(details.querySelector(".sand-plan-row")).toHaveTextContent("套餐Heavy Plan不可访问");
     expect(details).toHaveTextContent("不可访问");
     expect(details).toHaveTextContent("访问受限 PAYWALL");
-    expect(details.querySelector(".sand-reset-row")).toHaveTextContent("重置09-04 17:38约 4天 1小时");
+    expect(details.querySelector(".sand-reset-row")).toHaveTextContent(`重置${localSandResetStamp(resetAt)}约 4天 1小时`);
     expect(screen.queryByText("有额度")).not.toBeInTheDocument();
   });
 
@@ -291,7 +299,7 @@ describe("multi-account workspace", () => {
     expect(details).toHaveTextContent("可访问");
     expect(details.querySelector(".sand-reset-row")).toHaveTextContent("重置待刷新");
     expect(details).not.toHaveTextContent("可重置");
-    expect(details).not.toHaveTextContent("2026-08-31 17:00");
+    expect(details).not.toHaveTextContent(localSandResetStamp("2026-08-31T09:00:00Z"));
   });
 
   it("formats a seconds-based Sand reset timestamp with the same instant used by the countdown", async () => {
@@ -308,7 +316,7 @@ describe("multi-account workspace", () => {
     await screen.findByText("one@example.invalid");
 
     const details = screen.getByRole("group", { name: "套餐额度状态" });
-    expect(details.querySelector(".sand-reset-row")).toHaveTextContent("重置09-04 17:38约 4天 0小时");
+    expect(details.querySelector(".sand-reset-row")).toHaveTextContent(`重置${localSandResetStamp(resetSeconds)}约 4天 0小时`);
     expect(details).not.toHaveTextContent("1970");
   });
 
@@ -351,7 +359,7 @@ describe("multi-account workspace", () => {
     expect(details.querySelector(".sand-quota-ring")).toHaveTextContent("本周期已用");
     expect(details).toHaveTextContent("未更新");
     expect(details).toHaveTextContent("上次受限原因 PAYWALL");
-    expect(details.querySelector(".sand-reset-row")).toHaveTextContent("重置09-04 17:38约 4天 0小时");
+    expect(details.querySelector(".sand-reset-row")).toHaveTextContent(`重置${localSandResetStamp("2026-09-04T09:38:00Z")}约 4天 0小时`);
     expect(details).not.toHaveTextContent("访问受限 PAYWALL");
     expect(details).not.toHaveTextContent("可访问");
   });
