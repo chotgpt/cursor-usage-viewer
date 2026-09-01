@@ -265,14 +265,18 @@ test("Cursor accounts dark desktop visual contract", async ({ page }) => {
   await expect(page.locator(".ghcp-account-card").first()).toContainText("local.current@example.invalid");
   await expect(page.locator(".ghcp-account-card").first().locator(".quota-item")).toHaveCount(4);
   await expect(page.locator(".ghcp-account-card").first().locator(".sand-status-panel")).toHaveCount(1);
-  await expect(page.locator(".ghcp-account-card").nth(0)).toContainText("本周期已用 100.0%");
+  await expect(page.locator(".ghcp-account-card").nth(0).locator(".sand-quota-ring-value")).toHaveText("100.0%");
+  await expect(page.locator(".ghcp-account-card").nth(0).locator(".sand-quota-ring")).toContainText("本周期已用");
   await expect(page.locator(".ghcp-account-card").nth(0)).toContainText("资格可访问");
-  await expect(page.locator(".ghcp-account-card").nth(0)).toContainText("重置时间待刷新");
+  await expect(page.locator(".ghcp-account-card").nth(0).locator(".sand-reset-row")).toContainText("重置待刷新");
   await expect(page.locator(".ghcp-account-card").nth(1)).toContainText("资格不可访问");
   await expect(page.locator(".ghcp-account-card").nth(1)).toContainText("访问受限 PAYWALL");
-  await expect(page.locator(".ghcp-account-card").nth(2)).toContainText("套餐 未知");
+  const futureReset = page.locator(".ghcp-account-card").nth(1).locator(".sand-reset-row .sand-detail-value");
+  expect(await futureReset.evaluate((element) => element.scrollWidth === element.clientWidth)).toBe(true);
+  await expect(page.locator(".ghcp-account-card").nth(2).locator(".sand-plan-row")).toContainText("套餐未知");
   await expect(page.locator(".ghcp-account-card").nth(2)).toContainText("资格未知");
-  await expect(page.locator(".ghcp-account-card").nth(3)).toContainText("上次本周期已用 42.0%");
+  await expect(page.locator(".ghcp-account-card").nth(3).locator(".sand-quota-ring-value")).toHaveText("42.0%");
+  await expect(page.locator(".ghcp-account-card").nth(3).locator(".sand-quota-ring")).toContainText("上次已用");
   await expect(page.locator(".ghcp-account-card").nth(3)).toContainText("用量未更新");
   await expect(page.locator(".ghcp-account-card").nth(4)).toContainText("资格状态未更新");
   await expect(page.locator(".ghcp-account-card").nth(5)).toContainText("核心额度: HTTP 403");
@@ -339,7 +343,7 @@ test("Cursor accounts English dark visual contract", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("button", { name: "Read local account" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Plan filter" })).toBeVisible();
-  await expect(page.getByRole("group", { name: "Grok / Sand status" }).first()).toContainText("Reset time needs refresh");
+  await expect(page.getByRole("group", { name: "Plan quota status" }).first().locator(".sand-reset-row")).toContainText("Needs refresh");
   await expect(page).toHaveScreenshot("cursor-accounts-english-dark.png", { fullPage: true });
 });
 

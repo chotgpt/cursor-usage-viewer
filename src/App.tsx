@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { dictionaries, initialLanguage, type Language } from "./i18n";
 import { PAGE_SIZES, usePagination } from "./hooks/usePagination";
@@ -290,14 +290,36 @@ function QuotaEmpty({ language }: { language: Language }) { return <div classNam
 function OnDemandQuota({ language, usage }: { language: Language; usage: CursorAccountView["coreUsage"] }) { const presentation = onDemandPresentation(usage, language); return <div className="quota-item windsurf-credit-item"><div className="quota-header"><span className="quota-label">On-Demand</span><span className={`quota-pct ${presentation.tone}`}>{presentation.valueText}</span></div>{presentation.costText && <div className="windsurf-credit-meta-row"><span className="windsurf-credit-used">{presentation.costText}</span></div>}<div className="quota-bar-track"><div className={`quota-bar ${presentation.tone}`} style={{ width: `${presentation.percent}%` }}/></div></div>; }
 function SandQuota({ language, sand }: { language: Language; sand: CursorAccountView["sand"] }) {
   const presentation = sandPresentation(sand, language);
-  return <div className={`sand-status-panel ${presentation.incomplete ? "incomplete" : ""}`} role="group" aria-label={localized(language, "Grok / Sand 状态", "Grok / Sand status")}>
-    <div className="sand-status-header">
-      <span className="sand-status-title">Grok / Sand</span>
-      <span className={`sand-access-badge ${presentation.accessTone}`}>{presentation.access}</span>
+  const reset = sandCardReset(sand?.nextResetTimestampUtc, language, Boolean(sand?.usageError));
+  const usageLabel = sand?.usageError ? (presentation.usagePercent == null ? localized(language, "未更新", "Not updated") : localized(language, "上次已用", "Last used")) : localized(language, "本周期已用", "Period used");
+  const usageValue = presentation.usagePercent == null ? "—" : percent(presentation.usagePercent, language);
+  const usageTone = quotaTone(presentation.usagePercent);
+  return <div className={`sand-status-panel ${presentation.incomplete ? "incomplete" : ""}`} role="group" aria-label={localized(language, "套餐额度状态", "Plan quota status")}>
+    <div
+      className={`sand-quota-ring ${usageTone} ${sand?.usageError ? "stale" : ""}`}
+      style={{ "--sand-progress": `${presentation.usagePercent ?? 0}%` } as CSSProperties}
+      title={presentation.usage}
+      aria-label={`${usageLabel} ${usageValue}`}
+    >
+      <div className="sand-quota-ring-content">
+        <strong className="sand-quota-ring-value">{usageValue}</strong>
+        <span>{usageLabel}</span>
+      </div>
     </div>
-    <div className="sand-status-usage"><span>{presentation.usage}</span><span className="sand-plan-label" title={`${presentation.planLabel} ${presentation.plan}`}>{presentation.planLabel} {presentation.plan}</span></div>
-    {presentation.blockReason && <div className={`sand-status-alert ${sand?.accessError ? "stale" : ""}`}>{presentation.blockReasonLabel} <code>{presentation.blockReason}</code></div>}
-    <div className={`sand-status-freshness ${presentation.incomplete ? "warning-text" : ""}`}>{presentation.freshness}</div>
+    <div className="sand-status-details">
+      <div className="sand-detail-row sand-plan-row">
+        <span className="sand-detail-label">{presentation.planLabel}</span>
+        <strong className="sand-detail-value" title={presentation.plan}>{presentation.plan}</strong>
+        <span className={`sand-access-badge ${presentation.accessTone}`}>{presentation.access}</span>
+      </div>
+      <div className="sand-detail-row sand-reset-row">
+        <span className="sand-detail-label">{reset.label}</span>
+        <strong className="sand-detail-value" title={reset.title}>{reset.value}</strong>
+        {reset.relative && <span className="sand-reset-relative">{reset.relative}</span>}
+      </div>
+      {presentation.blockReason && <div className={`sand-status-alert ${sand?.accessError ? "stale" : ""}`}>{presentation.blockReasonLabel} <code>{presentation.blockReason}</code></div>}
+      {presentation.incomplete && <div className="sand-status-note warning-text">{localized(language, "Sand 数据未完全更新", "Sand data is incomplete")} · {presentation.failures}</div>}
+    </div>
   </div>;
 }
 function quotaTone(value: number | null, enabled?: boolean | null) { return enabled === false || value == null ? "low" : value >= 90 ? "critical" : value >= 70 ? "medium" : "high"; }
@@ -379,7 +401,7 @@ function sandPresentation(sand: CursorAccountView["sand"], language: Language = 
   const blockReasonLabel = sand?.accessError ? localized(language, "上次受限原因", "Last block reason") : localized(language, "访问受限", "Access restricted");
   const planStale = Boolean(sand?.usageError);
   const planLabel = planStale ? localized(language, "上次套餐", "Last plan") : localized(language, "套餐", "Plan");
-  return { usage, compactUsage, plan: sandPlanValue(sand, language), planLabel, planStale, access, accessTone, blockReason, blockReasonLabel, freshness, incomplete };
+  return { usagePercent: p, usage, compactUsage, plan: sandPlanValue(sand, language), planLabel, planStale, access, accessTone, blockReason, blockReasonLabel, freshness, failures, incomplete };
 }
 function sandResetText(value: string | null | undefined, language: Language, now = Date.now()) {
   if (!value) return localized(language, "重置时间未知", "Reset time unknown");
@@ -396,6 +418,17 @@ function sandTableReset(value: string | null | undefined, language: Language, no
   const parts = dateTimeMinuteParts(value, language);
   if (!parts.time) return null;
   return { ...parts, relative: sandResetRelative(timestamp - now, language) };
+}
+function sandCardReset(value: string | null | undefined, language: Language, stale: boolean, now = Date.now()) {
+  const label = stale ? localized(language, "上次重置", "Last reset") : localized(language, "重置", "Reset");
+  if (!value) return { label, value: localized(language, "未知", "Unknown"), relative: null as string | null, title: localized(language, "重置时间未知", "Reset time unknown") };
+  const timestamp = parseExternalTimestamp(value);
+  if (timestamp == null) return { label, value: localized(language, "未知", "Unknown"), relative: null as string | null, title: localized(language, "重置时间未知", "Reset time unknown") };
+  if (timestamp <= now) return { label, value: localized(language, "待刷新", "Needs refresh"), relative: null as string | null, title: localized(language, "重置时间待刷新", "Reset time needs refresh") };
+  const date = new Date(timestamp);
+  const pad = (part: number) => String(part).padStart(2, "0");
+  const valueText = `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return { label, value: valueText, relative: sandResetRelative(timestamp - now, language), title: dateTimeMinute(value, language) };
 }
 function sandResetRelative(remaining: number, language: Language) {
   const totalHours = Math.floor(remaining / 3_600_000);

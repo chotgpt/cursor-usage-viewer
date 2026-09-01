@@ -22,7 +22,7 @@ let listedAccounts: CursorAccountView[] = [];
 function account(id = "cursor_one", email = "one@example.invalid"): CursorAccountView {
   return { id, email, authId: `auth0|${id}`, name: null, tags: ["500 credits"], membershipType: "pro", subscriptionStatus: "active", signUpType: "Auth_0", status: null, statusReason: null, source: "cockpit-tools", hasAccessToken: true, hasRefreshToken: true, isCurrent: false,
     coreUsage: { total: { enabled: true, used: 20, limit: 100, remaining: 80, percentUsed: 20 }, autoComposer: { enabled: true, used: null, limit: null, remaining: null, percentUsed: 11 }, api: { enabled: true, used: null, limit: null, remaining: null, percentUsed: 100 }, onDemand: { enabled: false, used: 0, limit: null, remaining: null, percentUsed: null }, billingCycleStart: "2026-08-20T00:00:00Z", billingCycleEnd: "2026-09-20T00:00:00Z", source: "live", updatedAt: 1788000000, error: null },
-    sand: { usagePercent: 64.5, hasAvailableUsage: true, hasNonZeroIncludedLimit: true, grokPlanLabel: "Grok", currentPeriodStart: null, nextResetTimestampUtc: "2026-09-04T00:00:00Z", accessGranted: true, accessState: "SAND_ACCESS_STATE_GRANTED", blockReason: null, isPaidTrialPlan: false, proAndSuperGrokPlansGrantAccess: true, usageUpdatedAt: 1788000000, accessUpdatedAt: 1788000000, usageError: null, accessError: null },
+    sand: { usagePercent: 64.5, hasAvailableUsage: true, hasNonZeroIncludedLimit: true, grokPlanLabel: "Grok Bot Plan", currentPeriodStart: null, nextResetTimestampUtc: "2026-09-04T00:00:00Z", accessGranted: true, accessState: "SAND_ACCESS_STATE_GRANTED", blockReason: null, isPaidTrialPlan: false, proAndSuperGrokPlansGrantAccess: true, usageUpdatedAt: 1788000000, accessUpdatedAt: 1788000000, usageError: null, accessError: null },
     auxiliaryErrors: [], lastError: null, lastErrorAt: null, createdAt: 1, lastUsed: 2 };
 }
 
@@ -159,7 +159,7 @@ describe("multi-account workspace", () => {
     ]);
   });
 
-  it("renders four core quota groups plus an independent Grok status panel", async () => {
+  it("renders the selected B2 percentage ring and right-side Sand details", async () => {
     const { container } = render(<App />);
     await screen.findByText("one@example.invalid");
 
@@ -167,7 +167,13 @@ describe("multi-account workspace", () => {
     expect(container.querySelector(".ghcp-accounts-page.cursor-accounts-page")).toBeInTheDocument();
     expect(container.querySelector(".ghcp-account-card")).toBeInTheDocument();
     expect(container.querySelectorAll(".ghcp-account-card .quota-item")).toHaveLength(4);
-    expect(screen.getByRole("group", { name: "Grok / Sand 状态" })).toHaveClass("sand-status-panel");
+    const panel = screen.getByRole("group", { name: "套餐额度状态" });
+    expect(panel).toHaveClass("sand-status-panel");
+    expect(within(panel).queryByText("Grok / Sand")).not.toBeInTheDocument();
+    expect(panel.querySelector(".sand-quota-ring")).toHaveStyle("--sand-progress: 64.5%");
+    expect(panel.querySelector(".sand-quota-ring-value")).toHaveTextContent("64.5%");
+    expect(panel.querySelector(".sand-plan-row")).toHaveTextContent("套餐Grok Bot Plan资格可访问");
+    expect(panel.querySelector(".sand-reset-row")).toHaveTextContent("重置");
     expect(screen.getByText("PRO")).toHaveClass("tier-badge", "pro");
     expect(screen.queryByText("pro")).not.toBeInTheDocument();
   });
@@ -240,12 +246,12 @@ describe("multi-account workspace", () => {
     render(<App />);
     await screen.findByText("one@example.invalid");
 
-    const details = screen.getByRole("group", { name: "Grok / Sand 状态" });
-    expect(details).toHaveTextContent("Grok / Sand");
-    expect(details).toHaveTextContent("套餐 Heavy Plan");
+    const details = screen.getByRole("group", { name: "套餐额度状态" });
+    expect(details).not.toHaveTextContent("Grok / Sand");
+    expect(details.querySelector(".sand-plan-row")).toHaveTextContent("套餐Heavy Plan资格不可访问");
     expect(details).toHaveTextContent("资格不可访问");
     expect(details).toHaveTextContent("访问受限 PAYWALL");
-    expect(details).toHaveTextContent("下次重置 2026-09-04 17:38（约 4天 1小时）");
+    expect(details.querySelector(".sand-reset-row")).toHaveTextContent("重置09-04 17:38约 4天 1小时");
     expect(screen.queryByText("有额度")).not.toBeInTheDocument();
   });
 
@@ -265,10 +271,11 @@ describe("multi-account workspace", () => {
     render(<App />);
     await screen.findByText("one@example.invalid");
 
-    const details = screen.getByRole("group", { name: "Grok / Sand 状态" });
-    expect(details).toHaveTextContent("本周期已用 100.0%");
+    const details = screen.getByRole("group", { name: "套餐额度状态" });
+    expect(details.querySelector(".sand-quota-ring-value")).toHaveTextContent("100.0%");
+    expect(details.querySelector(".sand-quota-ring")).toHaveTextContent("本周期已用");
     expect(details).toHaveTextContent("资格可访问");
-    expect(details).toHaveTextContent("重置时间待刷新");
+    expect(details.querySelector(".sand-reset-row")).toHaveTextContent("重置待刷新");
     expect(details).not.toHaveTextContent("可重置");
     expect(details).not.toHaveTextContent("2026-08-31 17:00");
   });
@@ -286,8 +293,8 @@ describe("multi-account workspace", () => {
     render(<App />);
     await screen.findByText("one@example.invalid");
 
-    const details = screen.getByRole("group", { name: "Grok / Sand 状态" });
-    expect(details).toHaveTextContent("下次重置 2026-09-04 17:38（约 4天 0小时）");
+    const details = screen.getByRole("group", { name: "套餐额度状态" });
+    expect(details.querySelector(".sand-reset-row")).toHaveTextContent("重置09-04 17:38约 4天 0小时");
     expect(details).not.toHaveTextContent("1970");
   });
 
@@ -308,11 +315,12 @@ describe("multi-account workspace", () => {
     render(<App />);
     await screen.findByText("one@example.invalid");
 
-    const details = screen.getByRole("group", { name: "Grok / Sand 状态" });
-    expect(details).toHaveTextContent("本周期已用 42.0%");
+    const details = screen.getByRole("group", { name: "套餐额度状态" });
+    expect(details.querySelector(".sand-quota-ring-value")).toHaveTextContent("42.0%");
+    expect(details.querySelector(".sand-quota-ring")).toHaveTextContent("本周期已用");
     expect(details).toHaveTextContent("资格状态未更新");
     expect(details).toHaveTextContent("上次受限原因 PAYWALL");
-    expect(details).toHaveTextContent("下次重置 2026-09-04 17:38（约 4天 0小时）");
+    expect(details.querySelector(".sand-reset-row")).toHaveTextContent("重置09-04 17:38约 4天 0小时");
     expect(details).not.toHaveTextContent("访问受限 PAYWALL");
     expect(details).not.toHaveTextContent("资格可访问");
   });
@@ -329,9 +337,11 @@ describe("multi-account workspace", () => {
     render(<App />);
     await screen.findByText("one@example.invalid");
 
-    const details = screen.getByRole("group", { name: "Grok / Sand 状态" });
-    expect(details).toHaveTextContent("上次套餐 Grok");
-    expect(within(details).queryByText(/^套餐 Grok$/)).not.toBeInTheDocument();
+    const details = screen.getByRole("group", { name: "套餐额度状态" });
+    expect(details.querySelector(".sand-plan-row")).toHaveTextContent("上次套餐Grok");
+    expect(details.querySelector(".sand-quota-ring")).toHaveClass("high", "stale");
+    expect(details.querySelector(".sand-quota-ring")).toHaveAttribute("aria-label", "上次已用 64.5%");
+    expect(within(details).queryByText(/^套餐$/)).not.toBeInTheDocument();
   });
 
   it("does not present Cursor's explicit NONE sentinel as a restriction", async () => {
@@ -339,7 +349,7 @@ describe("multi-account workspace", () => {
     render(<App />);
     await screen.findByText("one@example.invalid");
 
-    const details = screen.getByRole("group", { name: "Grok / Sand 状态" });
+    const details = screen.getByRole("group", { name: "套餐额度状态" });
     expect(details).not.toHaveTextContent("受限");
     expect(details).not.toHaveTextContent("SAND_ACCESS_BLOCK_REASON_NONE");
   });
@@ -349,8 +359,8 @@ describe("multi-account workspace", () => {
     render(<App />);
     await screen.findByText("one@example.invalid");
 
-    const details = screen.getByRole("group", { name: "Grok / Sand 状态" });
-    expect(details).toHaveTextContent("套餐 未知");
+    const details = screen.getByRole("group", { name: "套餐额度状态" });
+    expect(details.querySelector(".sand-plan-row")).toHaveTextContent("套餐未知");
     expect(details).toHaveTextContent("资格未知");
     expect(screen.queryByText(/Heavy|Frok/i)).not.toBeInTheDocument();
   });
