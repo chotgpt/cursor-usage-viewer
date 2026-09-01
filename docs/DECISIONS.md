@@ -1,6 +1,6 @@
 # Cursor 额度查看器决策记录
 
-更新时间：2026-08-30
+更新时间：2026-08-31
 
 ## D-001 产品范围与技术栈
 
@@ -182,3 +182,33 @@ Cockpit Tools 只作为固定提交 `a0508ae815e104e931dae515389e680840008367` �
 6. 视觉门至少覆盖 1280×800 的深色和浅色固定假数据基线、当前账号第一、三列卡片和 Grok/Sand 第五额度；自动基线通过不替代用户对精确候选版本的人工视觉验收。
 
 决策依据：用户对四个产品问题的最终回答；Cockpit Tools 固定提交的 `src-tauri/Cargo.toml:6`（`license = "CC-BY-NC-SA-4.0"`）与 `README.md` 许可证章节；CC BY-NC-SA 4.0 官方法律文本关于非商业、署名和相同方式共享的条款；本地代码面调查显示整仓包含大量与 Cursor-only 产品无关的页面、服务、命令和 sidecar。
+
+## D-018 Grok/Sand 套餐与资格展示
+
+用户于 2026-08-31 根据运行截图明确将 `grokPlanLabel` 的界面标签从“来源”改为“套餐”。Grok/Sand 卡片扩展使用 Cursor 返回的原始 `grokPlanLabel` 作为套餐显示值；字段缺失时显示“未知”，不得从 `accessGranted`、`isPaidTrialPlan` 或其他布尔字段猜测 Heavy/Frok/Grok 套餐。访问资格作为独立状态徽章显示“可访问 / 不可访问 / 状态未知”；`blockReason` 作为独立受限原因警示，不与套餐或额度混写。整个 Grok/Sand 扩展使用紧凑的独立分组框，与 Cockpit 原四组额度形成清楚但不过度抢眼的层级；重置时间精确显示到分钟，并与用量进度保持独立层级。
+
+决策依据：用户最新明确要求“可以把来源改成套餐”，并针对现有 Grok/Sand 区块截图要求继续优化 UI/UX；此决定细化 D-006、D-012 和 D-017 的第五额度展示，不改变 Cursor 第一方字段是真源、缺失值不猜测的边界。
+
+## D-019 Grok/Sand 组合状态与过期重置时间
+
+用户于 2026-08-31 否决把 `usagePercent`、`grokPlanLabel`、`accessGranted`、`blockReason` 与 `nextResetTimestampUtc` 机械平铺为第五个同构核心额度。Grok/Sand 继续保留为独立于四组核心额度的附加状态：用量、套餐、访问资格、受限原因和数据新鲜度各守其真实含义，但界面必须按完整组合状态组织信息层级，不能让“资格可访问”被误读为“仍有剩余额度”，也不能让用量颜色代替资格状态。
+
+当 `nextResetTimestampUtc` 晚于当前时间时，界面可显示精确到分钟的下次重置时间和中性倒计时；当该时间已经过期时，只显示“重置时间待刷新”，不再显示旧时间，也不得显示“可重置”或暗示用户具备主动重置能力。字段缺失或无法解析时保持未知，不猜测新的时间。
+
+令牌续期、账号资料、订阅资料、核心额度、Sand 用量与 Sand 资格必须能以不包含 Token、Cookie、邮箱、响应正文或完整 URL 的阶段标识分别归属。续期或资料阶段失败但核心额度成功时，只显示“核心额度已更新，账号资料未完全更新”，不得冒充核心失败；一次核心成功必须显式清除过去持久化的核心错误。部分成功时保留各自最后成功值，但界面必须标明未更新或陈旧状态，不得把不同时间的新旧值包装成同一份当前状态。自动测试与视觉契约应覆盖 `100% + 资格可访问 + 重置时间已过期`、不可访问与受限原因、未知字段及 Sand 部分失败；不得继续用“五个同构额度”“固定不超过 80px”或“必须一屏塞下所有卡片”反向约束产品表达。
+
+决策依据：用户对真实开发窗口中“Grok-Bot / 100.0% / 套餐 Grok Bot Plan / 可访问 / 过期重置时间（可重置）”组合的明确否决；本轮四方独立审查对字段语义、UI、UX 与错误归属的共同结论；用户对过期时间最终选择“只显示待刷新”。
+
+## D-020 Grok/Sand 用量恢复真机确认的 Bearer 链路
+
+用户于 2026-08-31 在确认旧实现能够正常取得 Grok/Sand 额度后，明确要求当前产品直接采用 `Cusor-bot-sand` 的已验证取数方式。本决定取代 D-012 第 5 项中 Sand 用量使用 `cursor.com/api/dashboard/get-sand-usage-status` 会话 Cookie 端点的旧口径；核心四组额度与 Sand 资格的来源不变。
+
+一次手动刷新中的 Sand 子链路固定为：
+
+1. Sand 用量调用 `POST https://api2.cursor.sh/aiserver.v1.DashboardService/GetSandUsageStatus`，使用 `Authorization: Bearer <accessToken>`、`Content-Type: application/json`、`Connect-Protocol-Version: 1`、普通浏览器 User-Agent 与 `{}` 请求体。
+2. Sand 资格继续调用 `POST https://cursor.com/api/dashboard/get-sand-access-status`，使用 `WorkosCursorSessionToken` 会话 Cookie、`Origin: https://cursor.com`、JSON 请求头与 `{}` 请求体。
+3. `GET https://cursor.com/api/usage-summary` 继续作为 Total、Auto + Composer、API、On-Demand 四组核心额度真源；它的失败与上述两个 Sand 阶段分别归属，不得因核心 403 丢弃成功取得的 Sand 数据，也不得将 Sand 成功表述为核心额度刷新成功。
+
+生产白名单加入精确的 `GetSandUsageStatus` api2 路径并移除旧 Sand 用量 dashboard 路径；仍禁止重定向、查询参数、片段和任意目标。`GetCurrentPeriodUsage` 继续不在生产白名单，本决定没有恢复该旧核心额度端点。
+
+决策依据：用户最新明确要求“`C:\Users\Administrator\Downloads\Cusor-bot-sand` 是怎么获取的，直接抄”；该项目 `sand_api.py::fetch_usage` 的真机确认请求契约；本项目对外部请求最小白名单与分阶段脱敏错误边界。

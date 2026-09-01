@@ -224,16 +224,16 @@ Linux:   ~/.config/Cursor/User/globalStorage/state.vscdb
 
 ## 7. 用户主动额度刷新链路
 
-决策依据：`docs/DECISIONS.md` §D-012。单账号严格顺序：
+决策依据：`docs/DECISIONS.md` §D-012、§D-020。单账号严格顺序：
 
-1. JWT 不可解析或 `exp <= now + 5min`：`POST https://api2.cursor.sh/oauth/token` 条件续期；失败保存脱敏错误并继续旧 Token；
-2. 可选 `POST https://api2.cursor.sh/aiserver.v1.AuthService/GetUserMeta`；
-3. 可选 Bearer `GET /auth/full_stripe_profile`，非 200 fallback `GET /auth/stripe_profile`，401/403 为认证错误；
+1. JWT 不可解析或 `exp <= now + 5min`：`POST https://api2.cursor.sh/oauth/token` 条件续期；失败保存独立的脱敏辅助阶段错误并继续旧 Token；
+2. 可选 `POST https://api2.cursor.sh/aiserver.v1.AuthService/GetUserMeta`；失败保存独立资料阶段错误；
+3. 可选 Bearer `GET /auth/full_stripe_profile`，非 200 fallback `GET /auth/stripe_profile`，401/403 为认证错误并独立归属；
 4. 必需 `GET https://cursor.com/api/usage-summary`，WorkOS Cookie、Accept JSON、固定普通 User-Agent，作为四组额度与周期唯一真源；
-5. 可选 `POST https://cursor.com/api/dashboard/get-sand-usage-status`；
-6. 可选 `POST https://cursor.com/api/dashboard/get-sand-access-status`。
+5. 可选 Bearer `POST https://api2.cursor.sh/aiserver.v1.DashboardService/GetSandUsageStatus`，请求契约见 D-020；
+6. 可选 Cookie `POST https://cursor.com/api/dashboard/get-sand-access-status`。
 
-删除 `GetCurrentPeriodUsage` 常量、白名单、调用和真源测试。核心失败保留上次快照并记 `core_error`；两个 Sand 结果独立。成功或失败状态都持久化。
+删除 `GetCurrentPeriodUsage` 常量、白名单、调用和真源测试。核心失败保留上次快照并记 `core_error`；核心成功必须清除过去的持久化核心错误；辅助资料错误与两个 Sand 结果分别独立。成功或失败状态都持久化。
 
 批量刷新按 Cockpit 逐账号 `await`；一个失败不停止后续。页面立即显示逐账号状态，无二次确认。托盘常驻和更新检查不得触发 Cursor 额度后台刷新。
 
