@@ -5,10 +5,11 @@ import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
-import { RELEASE_PAGE_URL } from "../config/release";
+import { RELEASE_PAGE_URL, RELEASES_URL, REPOSITORY_URL } from "../config/release";
 import { isTauri } from "../services/cursorService";
 import { resolveUpdaterTarget, type BundleKind, type DesktopArch, type DesktopPlatform } from "../utils/updaterTarget";
 import { CHECK_DELAYS, DOWNLOAD_DELAYS, withUpdaterRetry } from "../utils/updaterRetry";
+import type { Language } from "../i18n";
 
 export type PendingNotes = { fromVersion: string; toVersion: string; notes: string };
 export type UpdateSettings = {
@@ -44,18 +45,43 @@ async function installedTarget(): Promise<{ target: string; bundle: BundleKind }
   return target ? { target, bundle } : null;
 }
 
-export function useAppUpdater() {
+export function useAppUpdater(language: Language = "zh-CN") {
   const [state, setState] = useState(initial);
   const [settings, setSettings] = useState<UpdateSettings | null>(null);
+  const [settingsLoading, setSettingsLoading] = useState(isTauri);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsError, setSettingsError] = useState("");
+  const [installedVersion, setInstalledVersion] = useState("0.1.0");
   const [versionChange, setVersionChange] = useState<PendingNotes | null>(null);
   const updateRef = useRef<Update | null>(null);
   const cancelled = useRef(false);
   const running = useRef(false);
   const bundleRef = useRef<BundleKind>("unknown");
 
-  const saveSettings = useCallback(async (next: UpdateSettings) => {
+  const saveSettings = useCallback(async (next: UpdateSettings): Promise<boolean> => {
+    const previous = settings;
     setSettings(next);
-    if (isTauri()) await invoke("save_update_settings", { settings: next });
+    setSettingsSaving(true);
+    setSettingsError("");
+    try {
+      if (isTauri()) await invoke("save_update_settings", { settings: next });
+      return true;
+    } catch (error) {
+      setSettings(previous);
+      setSettingsError(String(error));
+      return false;
+    } finally {
+      setSettingsSaving(false);
+    }
+  }, [settings]);
+
+  const loadSettings = useCallback(async () => {
+    if (!isTauri()) { setSettingsLoading(false); return; }
+    setSettingsLoading(true);
+    setSettingsError("");
+    try { setSettings(await invoke<UpdateSettings>("get_update_settings")); }
+    catch (error) { setSettings(null); setSettingsError(String(error)); }
+    finally { setSettingsLoading(false); }
   }, []);
 
   const download = useCallback(async () => {
@@ -120,7 +146,7 @@ export function useAppUpdater() {
     setState((old) => ({ ...old, phase: "checking", error: "" }));
     try {
       const installed = await installedTarget();
-      if (!installed) throw new Error("无法识别当前安装包类型，请使用浏览器下载对应安装包");
+      if (!installed) throw new Error(language === "en" ? "Unable to identify the installed package type. Use the browser download instead." : "无法识别当前安装包类型，请使用浏览器下载对应安装包");
       bundleRef.current = installed.bundle;
       const update = await withUpdaterRetry(() => check({ target: installed.target }), CHECK_DELAYS);
       const next = await invoke<UpdateSettings>("mark_update_checked");
@@ -142,7 +168,7 @@ export function useAppUpdater() {
       running.current = false;
     }
     if (shouldDownload) void download();
-  }, [download]);
+  }, [download, language]);
 
   const cancel = useCallback(() => {
     cancelled.current = true;
@@ -154,17 +180,23 @@ export function useAppUpdater() {
   }, []);
 
   const skip = useCallback(async () => {
-    if (settings && state.version) await saveSettings({ ...settings, skippedVersion: state.version });
+    if (settings && state.version) {
+      const saved = await saveSettings({ ...settings, skippedVersion: state.version });
+      if (!saved) {
+        setState((old) => ({ ...old, error: language === "en" ? "Unable to save skipped version." : "无法保存跳过版本设置。" }));
+        return;
+      }
+    }
     setState(initial);
-  }, [saveSettings, settings, state.version]);
+  }, [language, saveSettings, settings, state.version]);
 
   useEffect(() => {
     if (!isTauri()) return;
-    void invoke<UpdateSettings>("get_update_settings").then(setSettings);
+    void loadSettings();
     void getVersion()
-      .then((currentVersion) => invoke<PendingNotes | null>("consume_version_change", { currentVersion }))
+      .then((currentVersion) => { setInstalledVersion(currentVersion); return invoke<PendingNotes | null>("consume_version_change", { currentVersion }); })
       .then(setVersionChange);
-  }, []);
+  }, [loadSettings]);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -188,6 +220,11 @@ export function useAppUpdater() {
   return {
     state,
     settings,
+    settingsLoading,
+    settingsSaving,
+    settingsError,
+    installedVersion,
+    reloadSettings: loadSettings,
     versionChange,
     saveSettings,
     checkNow,
@@ -209,6 +246,8 @@ export function useAppUpdater() {
       }
     },
     openRelease: () => openUrl(RELEASE_PAGE_URL),
+    openRepository: () => openUrl(REPOSITORY_URL),
+    openReleaseVersion: (version: string) => openUrl(`${RELEASES_URL}/tag/v${encodeURIComponent(version)}`),
     dismissVersionChange: () => setVersionChange(null),
     restart: () => relaunch(),
   };

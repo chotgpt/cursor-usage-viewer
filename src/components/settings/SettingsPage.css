@@ -1,0 +1,31 @@
+/* Derived from Cockpit Tools src/pages/settings/Settings.css. */
+.settings-page { width: 100%; color: var(--text-primary); }
+.settings-page-tabs-row { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; margin-bottom: 32px; }
+.page-tabs-label { color: var(--primary); font-size: 24px; font-weight: 700; }
+.page-tabs { display: flex; padding: 6px; border: 1px solid var(--border-light); border-radius: var(--radius-full); background: var(--bg-card); box-shadow: var(--shadow-md); }
+.filter-tab { min-height: 38px; padding: 0 20px; border: 0; border-radius: var(--radius-full); color: var(--text-secondary); background: transparent; font-size: 13px; font-weight: 500; }
+.filter-tab:hover { color: var(--text-primary); }
+.filter-tab.active { color: var(--primary); background: var(--primary-light); font-weight: 600; }
+.settings-container { width: 100%; }
+.settings-content { width: 100%; }
+.settings-group { overflow: hidden; width: 100%; margin-bottom: 24px; border: 1px solid var(--border-light); border-radius: var(--radius-lg); background: var(--bg-secondary); box-shadow: var(--shadow-sm); }
+.group-title { position: relative; margin: 0 0 10px; padding-left: 12px; color: var(--text-primary); font-size: 14px; font-weight: 700; letter-spacing: .02em; line-height: 1.2; }
+.group-title::before { position: absolute; top: 50%; left: 0; width: 4px; height: 16px; border-radius: 999px; background: var(--primary); content: ""; transform: translateY(-50%); }
+.settings-row { display: flex; align-items: center; justify-content: space-between; padding: 18px 24px; border-bottom: 1px solid var(--border-light); background: var(--bg-secondary); transition: background .2s; }
+.settings-row:last-child { border-bottom: 0; }.settings-row:hover { background: var(--bg-hover); }
+.row-label { display: flex; flex: 1; flex-direction: column; min-width: 240px; padding-right: 16px; gap: 4px; }
+.row-title { color: var(--text-primary); font-size: 14px; font-weight: 500; }.row-desc { color: var(--text-secondary); font-size: 12px; }
+.row-control { display: flex; flex-shrink: 0; align-items: center; gap: 12px; }
+.row-control select { min-width: 180px; height: 38px; padding: 0 34px 0 12px; border: 1px solid var(--border); border-radius: 10px; color: var(--text-primary); background: var(--bg-tertiary); font-size: 13px; }
+.switch { position: relative; display: inline-flex; width: 44px; height: 24px; }.switch input { width: 0; height: 0; opacity: 0; }.switch .slider { position: absolute; border-radius: 999px; background: var(--bg-tertiary); cursor: pointer; inset: 0; transition: .2s; }.switch .slider::before { position: absolute; bottom: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: white; box-shadow: var(--shadow-sm); content: ""; transition: .2s; }.switch input:checked + .slider { background: var(--primary); }.switch input:checked + .slider::before { transform: translateX(20px); }
+.settings-about-product { display: grid; padding: 28px; gap: 8px; }.settings-about-product strong { font-size: 20px; }.settings-about-product span, .settings-about-product p { color: var(--text-secondary); font-size: 12px; }.settings-about-product p { margin: 0; }
+.settings-about-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.settings-inline-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 24px; border-bottom: 1px solid color-mix(in srgb,var(--danger) 28%,var(--border-light)); color: var(--danger); background: color-mix(in srgb,var(--danger) 7%,var(--bg-secondary)); font-size: 12px; }
+.release-history-modal { width: min(680px, calc(100vw - 48px)); max-height: min(680px, calc(100vh - 48px)); }
+.release-history-modal .modal-body { overflow-y: auto; }
+.release-history-list { display: flex; flex-direction: column; gap: 14px; }
+.release-history-item { padding: 16px; border: 1px solid var(--border-light); border-radius: var(--radius-md); background: var(--bg-secondary); }
+.release-history-item header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.release-history-item header > div { display: flex; align-items: baseline; gap: 10px; }
+.release-history-item header span { color: var(--text-secondary); font-size: 12px; }
+.release-history-item ul { margin: 12px 0 0; padding-left: 20px; color: var(--text-secondary); font-size: 13px; line-height: 1.6; }
