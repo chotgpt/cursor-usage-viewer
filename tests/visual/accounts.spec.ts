@@ -237,6 +237,7 @@ test("account cards use the Cockpit typography hierarchy", async ({ page }) => {
     const metadata = styleFor(".windsurf-credit-used");
     const date = styleFor(".card-date");
     const tag = styleFor(".tag-pill");
+    const sandResetRelative = getComputedStyle(document.querySelector(".sand-reset-relative")!);
     return {
       email: [email.fontSize, email.fontWeight],
       emailTextWeight: emailText.fontWeight,
@@ -244,6 +245,7 @@ test("account cards use the Cockpit typography hierarchy", async ({ page }) => {
       metadata: [metadata.fontSize, metadata.fontFamily],
       date: [date.fontSize, date.color],
       tag: [tag.fontSize, tag.fontWeight],
+      sandResetRelative: [sandResetRelative.fontSize, sandResetRelative.lineHeight],
     };
   });
   expect(typography).toEqual({
@@ -253,6 +255,7 @@ test("account cards use the Cockpit typography hierarchy", async ({ page }) => {
     metadata: ["11px", expect.stringContaining("JetBrains Mono")],
     date: ["11px", "rgb(148, 163, 184)"],
     tag: ["11px", "500"],
+    sandResetRelative: ["10.5px", "14px"],
   });
 });
 
