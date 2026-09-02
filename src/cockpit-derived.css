@@ -348,7 +348,7 @@ body {
 .sand-detail-value { overflow: hidden; min-width: 0; color: var(--text-primary); text-overflow: ellipsis; white-space: nowrap; }
 .sand-plan-row .sand-detail-value { font-size: 14px; font-weight: 680; letter-spacing: -.12px; }
 .sand-reset-row .sand-detail-value { font-family: var(--font-sans); font-size: 13px; font-variant-numeric: tabular-nums; font-weight: 620; letter-spacing: -.1px; }
-.sand-reset-relative { overflow: hidden; color: var(--text-secondary); font-size: 10.5px; font-weight: 450; letter-spacing: -.15px; line-height: 1; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.sand-reset-relative { overflow: hidden; color: var(--text-secondary); font-size: 10.5px; font-weight: 450; letter-spacing: -.15px; line-height: 14px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .sand-access-text { overflow: hidden; font-size: 12px; font-weight: 600; line-height: 1; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .sand-access-text.granted { color: color-mix(in srgb, var(--success) 72%, var(--text-secondary)); }
 .sand-access-text.blocked { color: var(--danger); }
