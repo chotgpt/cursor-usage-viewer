@@ -44,7 +44,7 @@ Maintainers should follow the fail-closed [release process](docs/RELEASING.md). 
 
 ## Install notes / 安装提示
 
-The first release uses Tauri updater signatures but no Windows code-signing certificate or Apple notarization. SmartScreen or Gatekeeper may warn. Verify release checksums and attestations. Platform downloads will be listed here after `v0.1.0` is published.
+The first release uses Tauri updater signatures but no Windows code-signing certificate or Apple notarization. SmartScreen or Gatekeeper may warn. Verify release checksums and attestations. Platform downloads will be listed here after the first stable release is published.
 
 首版启用 Tauri updater 签名，但不购买 Windows 代码签名且不做 Apple notarization，因此可能出现 SmartScreen / Gatekeeper 提示。
 

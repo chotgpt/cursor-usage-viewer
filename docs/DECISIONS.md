@@ -145,7 +145,7 @@ Cockpit Tools 只作为固定提交 `a0508ae815e104e931dae515389e680840008367` �
 采用用户确认的“单人双确认”发布模型：
 
 1. AI/Agent 只能实现、测试、提交 PR、生成 Draft 候选和汇报证据；不得代替仓库 owner 运行产品验收、填写或勾选 Release Acceptance Issue、添加 `release-approved` 标签、关闭验收 Issue、批准 `stable-release` Environment 或发布 stable。
-2. `main` 继续强制 PR、批准和必需检查。最终候选 tag 必须对应 `main` 中已通过 CI 与 CodeQL 的精确提交；tag 或代码变化立即使旧验收失效。
+2. `main` 继续强制 PR、必需检查、线性历史和对话解决。仓库只有一个具备合并权限的维护者，而 GitHub 不允许 PR 作者批准自己的 PR，因此 required approvals 固定为 `0`，并关闭“最新推送需他人批准”、陈旧批准和无归属变更额外批准；owner 必须在检查通过后亲自审阅 diff 并执行 squash merge。最终候选 tag 必须对应 `main` 中已通过 CI 与 CodeQL 的精确提交；tag 或代码变化立即使旧验收失效。
 3. `v*` 只生成签名 Draft。Draft 的平台资产、Tauri 签名、target manifests、`latest.json`、SHA256 和 provenance attestation 全部齐全后，才可开始针对该精确 tag/SHA 的人工验收。
 4. 仓库 owner 必须亲自运行源码和候选包，完成 UI、核心功能、持久化、安全边界、已知问题以及计划 §17.4 的真实隔离 updater E2E，并在专用 Issue 中提供证据、勾完稳定的机器可读验收项、添加 `release-approved` 标签并关闭 Issue。
 5. stable workflow 的预检必须确认不存在打开的 `release-blocker`，并再次绑定 Issue、tag、SHA、required checks、Draft 状态、资产/签名/manifest、实际下载字节 SHA256 和 attestation；输入确认词必须精确为 `PUBLISH <tag>`。
@@ -154,7 +154,9 @@ Cockpit Tools 只作为固定提交 `a0508ae815e104e931dae515389e680840008367` �
 
 当前 `v0.1.0` Draft 在用户实际产品验收和本决策落地之前生成，只是历史构建证据，不具备 stable 发布资格。后续界面或功能修改完成后必须使用新候选 tag 重新构建和验收，不得沿用旧 Draft 的自动化结论。
 
-决策依据：用户选择“单人双确认”；GitHub 官方关于 AI 代码需人工审查、受保护 Environment、immutable releases 与 artifact attestations 的文档；NIST SSDF PW.7/PS.3 的人工评审、自动分析和发布完整性原则；Tauri v2 updater 强制签名规范。
+PR 门禁的设计目标是留下可审计 diff、阻止直接推送并强制自动检查，而不是伪造不存在的第二位审查者。外部贡献者仍可提交 PR，但没有写权限就不能合并；owner 继续负责人工审阅。若将来新增第二位独立且具备写权限的维护者，必须在授予权限前重新评估并优先恢复至少一次独立批准。`main` Ruleset 不保留管理员常驻 bypass，避免正常合并退化为绕过规则；紧急情况下只能先显式修改并留下 Ruleset 审计记录。
+
+决策依据：用户选择“单人双确认”并于 2026-09-03 确认采用单人仓库 PR 门禁；GitHub 官方说明 PR 作者不能批准自己的 PR，且“Require a pull request before merging”允许只要求 PR 存在而不要求批准；GitHub 官方关于 AI 代码需人工审查、受保护 Environment、immutable releases 与 artifact attestations 的文档；NIST SSDF PW.7/PS.3 的人工评审、自动分析和发布完整性原则；Tauri v2 updater 强制签名规范。
 
 ## D-016 Cockpit 视觉真源、当前账号置顶与视觉验收门
 

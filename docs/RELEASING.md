@@ -17,7 +17,7 @@ The repository owner performs the product acceptance and both release confirmati
 
 ## State machine
 
-1. **Development:** changes live on a branch and enter `main` through a reviewed pull request.
+1. **Development:** changes live on a branch and enter `main` through an owner-reviewed pull request after all required checks pass.
 2. **Automated verification:** CI, CodeQL, dependency/security gates and three-platform build smoke pass on the exact candidate commit.
 3. **Human source/UI review:** the owner runs source locally, inspects the diff, reviews both dark and light 1280×800 visual-baseline changes (including the fifth Grok/Sand quota and current-account-first ordering) and tests user-visible behavior. Issues return to Development; this is not yet release acceptance.
 4. **Frozen candidate:** version files and changelog are finalized, then one new `vX.Y.Z` tag is created on the verified `main` commit. Tag movement is prohibited.
@@ -37,19 +37,35 @@ Before merge:
 2. add or update boundary tests before implementation where a reliable seam exists;
 3. run React tests/build, the Playwright visual regression gate, Rust fmt/test/clippy, release tests and the credential gate;
 4. review dependencies, permissions, endpoint changes, bilingual copy, CC BY-NC-SA consistency and Cockpit derivative provenance;
-5. obtain required GitHub checks and human PR approval.
+5. obtain all required GitHub checks, resolve review conversations and have the owner review the final diff before squash merge.
 
 Do not create a release tag while product behavior is still expected to change.
 
 ## One-time signing and repository protection
 
 - Keep the Tauri updater private key and password outside the repository and only in GitHub Secrets/offline backup. The public key remains embedded in the application.
-- Keep `main` protected by required PR review and GitHub Actions checks.
+- Keep `main` protected by a required pull request, strict GitHub Actions checks, conversation resolution, linear history, and blocked deletions/force pushes.
 - Protect `v*` tags against deletion and non-fast-forward updates.
 - Keep Secret Scanning, Push Protection, Dependabot, CodeQL and private vulnerability reporting enabled.
 - Keep GitHub Actions default permissions read-only and pin third-party Actions to full commit SHAs.
 - Keep the `stable-release` environment owner-reviewed and `can_admins_bypass: false`.
 - Keep immutable releases enabled. Drafts remain mutable only until the stable gate publishes them.
+
+### Solo-maintainer pull-request design
+
+The repository currently has one identity with merge permission. GitHub does not allow a pull-request author to approve their own pull request, so requiring one approval would make every owner-authored change impossible to merge without weakening the rules ad hoc or using an administrator bypass. The branch gate therefore separates an auditable pull-request/check gate from the independent-review gate that only becomes meaningful when a second maintainer exists.
+
+Configure the `main` ruleset as follows:
+
+- require a pull request, squash merge, resolved conversations and strict required status checks;
+- set required approving reviews to `0`;
+- disable stale-approval dismissal, latest-push approval and extra approval for unattributed changes;
+- require linear history and block deletion and non-fast-forward updates;
+- do not keep an administrator in the always-bypass list.
+
+External contributors can still open pull requests and respond to review feedback. They cannot merge without write permission; the owner reviews the final diff and performs the merge after the required checks pass. Before granting write access to a second independent maintainer, reassess this decision and normally restore at least one required approval.
+
+This source-merge design does not weaken the stable-release gates. Exact-candidate acceptance and the protected `stable-release` environment remain separate, non-delegable owner confirmations.
 
 ## Candidate commands
 
