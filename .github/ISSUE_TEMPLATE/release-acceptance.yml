@@ -1,12 +1,12 @@
 name: Release acceptance
-description: Human product acceptance for one exact release candidate. Never let an AI or automation complete this form.
+description: Human product acceptance for one exact release candidate. Every checkbox records the owner's own verification.
 title: "[Release acceptance] v"
 labels: ["release-acceptance"]
 body:
   - type: markdown
     attributes:
       value: |
-        This is a stable-release security gate, not a progress checklist. The repository owner must run and inspect the exact tagged candidate before completing it. AI agents and automation must not create, edit, check, label, close, or approve this issue on the owner's behalf.
+        This is a stable-release security gate, not a progress checklist. The repository owner must run and inspect the exact tagged candidate before it is completed. An AI agent may fill, label and close this issue only as the owner's executor under `docs/DECISIONS.md` §D-024: after the owner explicitly confirmed every item below for this exact tag/SHA and explicitly authorized publishing it. Automated results or agent self-tests never replace those confirmations; record the authorization date and the owner's statements in the evidence.
   - type: input
     id: tag
     attributes:
