@@ -248,3 +248,17 @@ PR 门禁的设计目标是留下可审计 diff、阻止直接推送并强制自
 5. 百分比显示规则：保留一位小数后结果为 `100.0` 的值显示为 `100%`，不再显示 `100.0%`；其余保留一位小数。该规则同时适用于环内数值与各额度百分比，保持全页一致。
 
 决策依据：用户对三张渲染草图的选择、对新增端点与“只对齐 Cockpit 网页登录后刷新”的明确批准，以及“100.0% 不要小数点”的补充要求；`Cusor-bot-sand/sand_api.py` 的 `fetch_period_spend` 契约与其“全模型”注释；Cockpit Tools 固定提交 `a0508ae815e104e931dae515389e680840008367` 的 `src-tauri/src/commands/cursor.rs`、`src/hooks/useProviderAccountsPage.ts`；本文件 D-019、D-020、D-021、D-022。
+
+## D-024 用户明确验收并授权后，Agent 可代为执行 stable 发布
+
+用户于 2026-09-03 明确授权修改 D-015 第 1 项的执行边界：仓库 owner 不再需要亲自操作 GitHub 界面完成 stable 发布；在 owner **明确验收通过并明确同意发布**之后，Agent 可以使用 owner 的凭据代为执行 Release Acceptance Issue、`Publish stable release` 工作流与 `stable-release` Environment 批准。本决定覆盖 D-015 第 1 项和第 4 项中“owner 必须亲自填写/勾选/关闭 Issue、亲自批准 Environment、Agent 不得代做”的表述；D-015 的状态区分、PR 门禁、精确 tag/SHA 绑定、Draft 完整性、预检、immutable releases 与新 patch 修复原则全部继续有效。
+
+被委托的只是**执行**，不是**判断**：
+
+1. 产品验收仍然是 owner 本人的行为。验收清单中的每一项（`SOURCE_REVIEWED`、`UI_ACCEPTED`、`VISUAL_GATE_ACCEPTED`、`CORE_FUNCTIONS_ACCEPTED`、`PERSISTENCE_ACCEPTED`、`SECURITY_ACCEPTED`、`UPDATER_E2E_ACCEPTED`、`KNOWN_ISSUES_REVIEWED`）只能由 owner 在对话中针对精确 tag/SHA 逐项或整体明确确认为真；Agent 不得凭自动化测试、截图、Draft 构建成功或 Agent 自测替 owner 勾选任何一项，不得把“看起来没问题”“构建通过”“生成 Draft”解读为验收通过。
+2. 发布授权必须是 owner 对精确 tag 的明确同意，例如“同意发布 v0.1.2”“PUBLISH v0.1.2”；没有 tag 或含糊的同意不构成授权。授权只对该 tag 及其 40 位 SHA 有效，任何代码、tag、资产或 Draft 变化都使授权失效，必须重新验收和重新授权。
+3. 满足第 1、2 项后，Agent 才可以 owner 身份：新建并填写 Release Acceptance Issue（tag、SHA、证据、全部勾选项）、添加 `release-approved`、关闭 Issue、手动触发 `Publish stable release` 并输入 `PUBLISH <tag>`、在 `stable-release` Environment 批准待定部署。Agent 必须在 Issue 的 Acceptance evidence 中如实记录“由 Agent 依据 owner 于 <日期> 在对话中给出的明确验收与发布授权代为执行”，并引用 owner 的确认原话或要点，不得伪造或补写 owner 未确认的证据。
+4. 以下情况 Agent 必须停止并向 owner 提问，而不是继续：owner 只确认了部分清单项；owner 的同意没有落到精确 tag；预检、Draft、required checks 或 `release-blocker` 状态与授权时不一致；Issue 作者校验、标签或工作流报错。Agent 不得为了让发布通过而修改 `scripts/release/approval.mjs`、验收模板 ID 或工作流门禁。
+5. `stable-release` Environment 继续保留必需审阅者且禁止管理员绕过；Agent 的批准与 owner 亲自点击等价，均以本决策记录的 owner 授权为前提。
+
+决策依据：用户 2026-09-03 的明确授权“用户授权后可以 Agent 执行代为发布，需要用户明确验收通过后并且同意才能代为发布”；本文件 D-013、D-015、D-016；`docs/RELEASING.md`；`.github/ISSUE_TEMPLATE/release-acceptance.yml` 与 `scripts/release/approval.mjs` 的机器可读校验。

@@ -39,7 +39,8 @@
 ## AI 开发与发布边界
 
 - 自动化测试、CI、CodeQL、构建、签名、Draft、attestation 通过只证明对应技术门禁通过，不得声称用户已经验收产品或 stable 已具备发布资格。
-- Agent 不得代替仓库 owner 创建、填写、修改、勾选、加标签或关闭 Release Acceptance Issue；不得批准或绕过 `stable-release` Environment；不得直接在 GitHub UI/API/CLI 发布 stable。
-- 稳定版只能经 `.github/workflows/publish-stable.yml` 发布。必须满足 `docs/DECISIONS.md` §D-015 和 `docs/RELEASING.md` 的精确 tag/SHA、人工验收、required checks、Draft 完整性、SHA256、attestation 与双重人工确认门禁。
-- 用户说“构建通过”“转公开”“生成 Draft”或“看起来没问题”均不等于授权发布 stable。stable 授权只对 Release Acceptance Issue 中记录的精确 tag/SHA 有效；任何代码、tag 或资产变化都会使授权失效。
-- 人工验收未完成时，只能报告未完成项和提供测试方法；禁止用 mock、单测、截图、打包成功或 Agent 自测冒充用户产品验收和计划 §17.4 的真实多平台安装/更新 E2E。
+- 产品验收是 owner 本人的判断，不可委托：Release Acceptance 清单的每一项只能由 owner 在对话中针对精确 tag/SHA 明确确认为真；Agent 不得凭自动化结果或自测替 owner 勾选任何一项。
+- 按 `docs/DECISIONS.md` §D-024，只有在 owner **明确验收通过**并**明确同意发布精确 tag**（如“同意发布 v0.1.2”）之后，Agent 才可以 owner 身份代为执行：填写并关闭 Release Acceptance Issue、添加 `release-approved`、触发 `Publish stable release`、批准 `stable-release` Environment。Issue 证据中必须如实记录“由 Agent 依据 owner 授权代为执行”并引用 owner 的确认要点；不得伪造证据，不得为通过发布而修改 `approval.mjs`、模板 ID 或工作流门禁。
+- 稳定版只能经 `.github/workflows/publish-stable.yml` 发布。必须满足 `docs/DECISIONS.md` §D-015、§D-024 和 `docs/RELEASING.md` 的精确 tag/SHA、人工验收、required checks、Draft 完整性、SHA256、attestation 与双重确认门禁。
+- 用户说“构建通过”“转公开”“生成 Draft”或“看起来没问题”均不等于验收通过或授权发布 stable。授权只对 owner 明确指定并记录在 Issue 中的精确 tag/SHA 有效；任何代码、tag 或资产变化都会使授权失效，必须重新验收和授权。
+- 人工验收未完成、只完成部分清单项或同意未落到精确 tag 时，Agent 必须停止并提问，只能报告未完成项和提供测试方法；禁止用 mock、单测、截图、打包成功或 Agent 自测冒充用户产品验收和计划 §17.4 的真实多平台安装/更新 E2E。

@@ -1,19 +1,24 @@
 # Strict release process
 
-Cursor Usage Viewer has one stable channel. Automated tests, AI self-review, successful builds and complete Draft assets are necessary evidence, but none of them constitutes human product acceptance. Stable publication requires two separate owner actions bound to one exact tag and commit.
+Cursor Usage Viewer has one stable channel. Automated tests, AI self-review, successful builds and complete Draft assets are necessary evidence, but none of them constitutes human product acceptance. Stable publication requires two separate confirmations bound to one exact tag and commit; both rest on the owner's explicit acceptance and publish authorization.
 
-Decision basis: `docs/DECISIONS.md` §D-013–D-016 and `docs/adr/0002-github-releases-and-signed-updater.md`.
+Decision basis: `docs/DECISIONS.md` §D-013–D-016, §D-024 and `docs/adr/0002-github-releases-and-signed-updater.md`.
 
-## Roles and non-delegable actions
+## Roles: owner judgment versus delegated execution
 
-AI agents and automation may implement changes, add tests, open a pull request, produce a signed Draft candidate and report evidence. They must not perform or claim the following owner-only actions:
+AI agents and automation may implement changes, add tests, open a pull request, produce a signed Draft candidate and report evidence.
 
-- personally accepting the product's UI or behavior;
-- creating, editing, checking, labeling or closing a Release Acceptance issue;
-- approving or bypassing the `stable-release` environment;
-- publishing a stable release through the UI, API, CLI or another workflow.
+**Judgment stays with the owner and cannot be delegated.** Only the owner can state that the exact candidate was reviewed, installed and tested, and only the owner can decide that it ships. Each item of the acceptance checklist must be explicitly confirmed by the owner for the exact tag/SHA; automated results, screenshots, a green Draft or an agent's own testing never substitute for that confirmation. Vague statements ("looks fine", "build passed", "make the Draft") are not acceptance and not authorization.
 
-The repository owner performs the product acceptance and both release confirmations. A second human reviewer can replace the single-owner environment policy later, but weakening the gates requires a recorded decision.
+**Execution may be delegated (§D-024).** After the owner has explicitly confirmed the checklist and explicitly authorized publishing the exact tag (for example "同意发布 v0.1.2" / "PUBLISH v0.1.2"), an agent acting with the owner's credentials may perform the mechanical steps on the owner's behalf:
+
+- create and fill the Release Acceptance issue with the tag, SHA, evidence and all checklist items, add `release-approved` and close it;
+- start `Publish stable release` with the exact tag, issue number and `PUBLISH <tag>`;
+- approve the pending `stable-release` deployment.
+
+The agent must record in the issue's evidence that it acted as executor under the owner's authorization given on a stated date, quoting or summarizing the owner's confirmation. It must stop and ask instead of proceeding when the owner confirmed only part of the checklist, when the consent does not name the exact tag, when the candidate, checks, Draft or `release-blocker` state changed since the authorization, or when any gate rejects the request. Agents must never edit `scripts/release/approval.mjs`, the template checkbox IDs or workflow gates to make a publication pass.
+
+A second human reviewer can replace the single-owner environment policy later, but weakening the gates requires a recorded decision.
 
 ## State machine
 
@@ -22,9 +27,9 @@ The repository owner performs the product acceptance and both release confirmati
 3. **Human source/UI review:** the owner runs source locally, inspects the diff, reviews both dark and light 1280×800 visual-baseline changes (including the fifth Grok/Sand quota and current-account-first ordering) and tests user-visible behavior. Issues return to Development; this is not yet release acceptance.
 4. **Frozen candidate:** version files and changelog are finalized, then one new `vX.Y.Z` tag is created on the verified `main` commit. Tag movement is prohibited.
 5. **Signed Draft:** `.github/workflows/release.yml` builds all platforms, signs updater artifacts, creates target manifests and `latest.json`, writes SHA256, attests provenance and leaves the release Draft.
-6. **Exact-candidate acceptance:** the owner tests the tagged source and candidate packages, including the real isolated updater E2E matrix, then completes `.github/ISSUE_TEMPLATE/release-acceptance.yml` for that exact tag and 40-character SHA. The owner adds `release-approved` and closes the issue only after every item is true.
-7. **Stable preflight:** the owner manually starts `Publish stable release` with the exact tag, acceptance issue number and confirmation `PUBLISH <tag>`. The workflow verifies that no `release-blocker` is open, then verifies owner authorship, closed state, labels, all checkboxes, evidence, tag/SHA identity, required checks, Draft state, assets, signatures, manifests, downloaded SHA256 and provenance.
-8. **Second confirmation:** the publish job waits at the protected `stable-release` environment. The owner reviews the pending job and explicitly approves it. Administrator bypass is disabled.
+6. **Exact-candidate acceptance:** the owner tests the tagged source and candidate packages, including the real isolated updater E2E matrix, and explicitly confirms every checklist item plus the publish authorization for that exact tag and 40-character SHA. The owner, or an agent executing under §D-024, then completes `.github/ISSUE_TEMPLATE/release-acceptance.yml`, adds `release-approved` and closes the issue only after every item is true.
+7. **Stable preflight:** the owner or the authorized agent starts `Publish stable release` with the exact tag, acceptance issue number and confirmation `PUBLISH <tag>`. The workflow verifies that no `release-blocker` is open, then verifies owner authorship, closed state, labels, all checkboxes, evidence, tag/SHA identity, required checks, Draft state, assets, signatures, manifests, downloaded SHA256 and provenance.
+8. **Second confirmation:** the publish job waits at the protected `stable-release` environment. The owner, or the authorized agent on the owner's behalf, compares the pending job's tag/SHA/issue with the authorization and approves it. Administrator bypass is disabled.
 9. **Revalidation and publication:** after approval, the workflow downloads and verifies the mutable Draft again, then publishes it. Immutable releases lock the tag and assets. The published-release smoke revalidates the public updater metadata.
 
 Any source, version, tag, artifact, manifest, checksum or acceptance change returns the release to the appropriate earlier state. Never edit an already published immutable release; ship a new patch version.
@@ -65,7 +70,7 @@ Configure the `main` ruleset as follows:
 
 External contributors can still open pull requests and respond to review feedback. They cannot merge without write permission; the owner reviews the final diff and performs the merge after the required checks pass. Before granting write access to a second independent maintainer, reassess this decision and normally restore at least one required approval.
 
-This source-merge design does not weaken the stable-release gates. Exact-candidate acceptance and the protected `stable-release` environment remain separate, non-delegable owner confirmations.
+This source-merge design does not weaken the stable-release gates. Exact-candidate acceptance and the protected `stable-release` environment remain two separate confirmations; both rest on the owner's own explicit acceptance and authorization even when an agent executes them under §D-024.
 
 ## Candidate commands
 
@@ -89,6 +94,8 @@ After the reviewed commit is on `main`, create a new version tag once. Pushing t
 
 Open the Release Acceptance issue form only after the Draft workflow is green. Use isolated fake accounts and test updater infrastructure; never put Cursor tokens, real account exports, updater private keys or unredacted responses in an issue, log, artifact or release.
 
+When an agent fills the form under §D-024, every checkbox it ticks must correspond to an explicit owner confirmation for this exact candidate; the evidence field must name the authorization date and summarize the owner's statements.
+
 The owner must personally verify:
 
 - the exact source diff, dependencies, permissions, network boundaries and release notes;
@@ -111,7 +118,7 @@ In GitHub Actions, run **Publish stable release** and enter:
 - `acceptance_issue`: the closed owner acceptance issue number;
 - `confirmation`: exactly `PUBLISH <tag>`.
 
-A successful preflight does not publish. Review the pending `stable-release` deployment, compare its tag/SHA/Issue evidence and approve it as the second owner action. Reject it if anything changed or is unclear.
+A successful preflight does not publish. Review the pending `stable-release` deployment, compare its tag/SHA/Issue evidence and approve it as the second confirmation. Reject it if anything changed or is unclear. An agent may perform both steps only under a §D-024 authorization that names this exact tag.
 
 ## Failure and rollback policy
 
