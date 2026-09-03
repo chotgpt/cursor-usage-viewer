@@ -147,9 +147,25 @@ async fn complete_cursor_login(
         .complete(&login_id)
         .await
         .map_err(|error| error.to_string())?;
-    state
-        .upsert(record, false)
+    store_login_and_refresh_once(&state, record)
+        .await
         .map_err(|error| error.to_string())
+}
+
+/// Mirrors Cockpit's `cursor_oauth_login_complete`: persist first, then refresh
+/// the new account once. A busy refresh gate or a failed refresh must not turn a
+/// successful login into an error, so those paths return the saved view.
+async fn store_login_and_refresh_once(
+    state: &AppState,
+    record: model::CursorAccountRecord,
+) -> error::AppResult<CursorAccountView> {
+    let saved = state.upsert(record, false)?;
+    let Ok(_guard) = state.refresh_gate.try_lock() else {
+        return Ok(saved);
+    };
+    Ok(refresh_one_unlocked(state, saved.id.clone())
+        .await
+        .unwrap_or(saved))
 }
 
 #[tauri::command]
@@ -669,6 +685,94 @@ mod refresh_coordination_tests {
             try_refresh_accounts_shared(&state, vec!["missing".to_owned()]).await,
             Err(error::AppError::RefreshInProgress)
         ));
+    }
+
+    fn login_record() -> model::CursorAccountRecord {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+
+        let payload = URL_SAFE_NO_PAD.encode(
+            serde_json::json!({"sub":"auth0|user_login","exp":4_102_444_800i64}).to_string(),
+        );
+        model::CursorAccountRecord::fake_for_test(
+            "cursor_login",
+            "login@example.invalid",
+            &format!("e30.{payload}.signature"),
+        )
+    }
+
+    async fn mount_refresh_chain(server: &wiremock::MockServer) {
+        use wiremock::{matchers, Mock, ResponseTemplate};
+        for (method, path, body) in [
+            ("POST", "/meta", serde_json::json!({})),
+            (
+                "GET",
+                "/full-profile",
+                serde_json::json!({"membershipType":"pro"}),
+            ),
+            (
+                "GET",
+                "/usage-summary",
+                serde_json::json!({"individualUsage":{"plan":{"totalPercentUsed":33.0}}}),
+            ),
+            (
+                "POST",
+                "/sand-usage",
+                serde_json::json!({"usagePercent": 64.5}),
+            ),
+            (
+                "POST",
+                "/sand-access",
+                serde_json::json!({"state":"SAND_ACCESS_STATE_GRANTED"}),
+            ),
+        ] {
+            Mock::given(matchers::method(method))
+                .and(matchers::path(path))
+                .respond_with(ResponseTemplate::new(200).set_body_json(body))
+                .mount(server)
+                .await;
+        }
+    }
+
+    #[tokio::test]
+    async fn web_login_persists_then_refreshes_the_new_account_once() {
+        let server = wiremock::MockServer::start().await;
+        mount_refresh_chain(&server).await;
+        let directory = tempdir().unwrap();
+        let mut state = AppState::new(directory.path().to_path_buf()).unwrap();
+        state.provider = provider::CursorUsageProvider::for_mock_server(&server.uri());
+
+        let view = store_login_and_refresh_once(&state, login_record())
+            .await
+            .unwrap();
+
+        assert_eq!(view.id, "cursor_login");
+        assert_eq!(view.core_usage.unwrap().total.percent_used, Some(33.0));
+        assert_eq!(view.sand.unwrap().usage_percent, Some(64.5));
+        let persisted = state.record("cursor_login").unwrap();
+        assert_eq!(persisted.sand.unwrap().usage_percent, Some(64.5));
+        let usage_calls = server
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .filter(|request| request.url.path() == "/usage-summary")
+            .count();
+        assert_eq!(usage_calls, 1);
+    }
+
+    #[tokio::test]
+    async fn web_login_still_succeeds_when_a_refresh_is_already_running() {
+        let directory = tempdir().unwrap();
+        let state = AppState::new(directory.path().to_path_buf()).unwrap();
+        let _active_refresh = state.refresh_gate.lock().await;
+
+        let view = store_login_and_refresh_once(&state, login_record())
+            .await
+            .unwrap();
+
+        assert_eq!(view.id, "cursor_login");
+        assert!(view.core_usage.is_none());
+        assert_eq!(state.list().unwrap().len(), 1);
     }
 
     #[test]

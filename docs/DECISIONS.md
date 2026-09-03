@@ -236,3 +236,15 @@ PR 门禁的设计目标是留下可审计 diff、阻止直接推送并强制自
 7. 生产网络白名单新增上述精确登录页和 `auth/poll`；额度端点及 OAuth Token 续期仍遵循 D-012、D-020。网页登录的受控 query 使用专用验证器，不得放宽其他生产端点禁止查询参数和片段的规则。应用托盘图标显式复用 Tauri 默认窗口图标，不引入上游品牌资源。
 
 决策依据：用户对自动刷新默认值、选项、托盘生命周期、网页登录固定流程、本机导入范围、设置位置及托盘图标的最终封板；Cockpit Tools 固定提交的 `src/hooks/useAutoRefresh.ts`、`src/utils/autoRefreshScheduler.ts`、`src/pages/CursorAccountsPage.tsx` 与 `src-tauri/src/modules/cursor_oauth.rs`；本轮最终实施计划 `docs/plans/2026-09-03-cockpit-auto-refresh-and-add-flow.md`。
+
+## D-023 Sand 卡片增加“本周期消费（全模型）”与网页登录后即时刷新
+
+用户于 2026-09-03 批准在 Sand 面板显示 Bot 周期内的美元消费，并选定三张真实渲染草图中的方案 A：百分比环与 D-021 语义完全不变，在右侧信息区按现有“套餐”“重置”两行相同的字体、字重、分隔线与右侧弱化文字语法新增第三行“消费 — `$x` — 全模型”。方案 B（环内小字换成金额）和方案 C（环以金额为主）因环内空间只够 5 个汉字宽度、大金额会碰到描边，且会让一个环同时表达两个不同口径的数而被否决。
+
+1. 生产白名单新增精确端点 `POST https://api2.cursor.sh/aiserver.v1.DashboardService/GetAggregatedUsageEvents`。请求契约照抄 `Cusor-bot-sand/sand_api.py::fetch_period_spend`：与 D-020 第 1 项相同的 `Authorization: Bearer <accessToken>`、`Content-Type: application/json`、`Connect-Protocol-Version: 1` 和普通浏览器 User-Agent；请求体为 `{"startDate":"<毫秒>","endDate":"<毫秒>"}`，`startDate` 取同一次刷新中 `GetSandUsageStatus` 返回的 `currentPeriodStart`，`endDate` 取当前时间。结果为响应 `aggregations[].totalCents` 求和；`aggregations` 缺失或不是数组时保持未知，不臆造为 0。
+2. 该端点是一次手动或自动刷新中的第三个可选 Sand 子阶段，只在 Sand 用量阶段成功且返回周期起点后调用。用量阶段失败或周期起点无法解析时记录脱敏的阶段错误并保留上次成功值，不发起请求；用量阶段成功但没有返回周期起点（账号没有 Bot 周期）时视为“未知”而不是失败：清除旧的周期消费、不记录错误、不发起请求，界面显示“—”且不触发部分失败告警。它的失败不得影响核心四组额度、Sand 用量百分比或 Sand 资格；反之亦然。仍禁止重定向、查询参数、片段和任意目标；错误只含阶段名和结构化证据，不含 Token、请求体或响应正文。
+3. 界面文案必须保留“全模型”限定：该金额是账号在 Bot 周期（`currentPeriodStart` 至今）内全部模型的用量事件合计，接口无法拆出纯 Bot 消费，也不等于 Total 卡片按计费周期显示的已用金额。周期消费未取得时显示“—”；仅该阶段失败或陈旧时行首标签改为“上次消费”，与 D-019/D-021 的部分失败语义一致。列表模式在 Sand 列以紧凑文本表达同一含义。
+4. 网页登录对齐 Cockpit 固定提交 `commands/cursor.rs::cursor_oauth_login_complete`：账号持久化成功后立即对该账号执行一次现有共享刷新链路；刷新与批量/自动刷新共用互斥协调，互斥被占用或刷新失败时直接返回已保存的脱敏视图，不阻断登录成功。本机导入、粘贴 Token 和 JSON 文件导入与 Cockpit 一致，只落盘不刷新。
+5. 百分比显示规则：保留一位小数后结果为 `100.0` 的值显示为 `100%`，不再显示 `100.0%`；其余保留一位小数。该规则同时适用于环内数值与各额度百分比，保持全页一致。
+
+决策依据：用户对三张渲染草图的选择、对新增端点与“只对齐 Cockpit 网页登录后刷新”的明确批准，以及“100.0% 不要小数点”的补充要求；`Cusor-bot-sand/sand_api.py` 的 `fetch_period_spend` 契约与其“全模型”注释；Cockpit Tools 固定提交 `a0508ae815e104e931dae515389e680840008367` 的 `src-tauri/src/commands/cursor.rs`、`src/hooks/useProviderAccountsPage.ts`；本文件 D-019、D-020、D-021、D-022。

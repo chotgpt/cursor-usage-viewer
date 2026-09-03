@@ -286,6 +286,7 @@ function TableSand({ language, sand }: { language: Language; sand: CursorAccount
   return <div className="table-sand-status" aria-label={localized(language, "Grok / Sand 状态", "Grok / Sand status")}>
     <div className="table-sand-primary"><strong title={presentation.usage}>{presentation.compactUsage}</strong><span className={`sand-access-badge ${presentation.accessTone}`}>{presentation.access}</span></div>
     <span className="table-sand-plan" title={`${presentation.planLabel} ${presentation.plan}`}>{presentation.planStale ? `${presentation.planLabel} ${presentation.plan}` : presentation.plan}</span>
+    <span className="table-sand-spend" title={presentation.spendTitle}>{presentation.spendLabel} {presentation.spendValue} · {presentation.spendScope}</span>
     {presentation.blockReason && <span className={`table-sand-reason ${sand?.accessError ? "warning-text" : "danger-text"}`} title={`${presentation.blockReasonLabel} ${presentation.blockReason}`}>{presentation.blockReasonLabel} {presentation.blockReason}</span>}
     <span className={`table-sand-freshness ${presentation.incomplete ? "warning-text" : ""}`} title={presentation.freshness}>{reset ? <><span>{localized(language, "重置", "Reset")} {reset.date}</span><span>{reset.time} ({reset.relative}){sand?.accessError ? ` · ${localized(language, "资格未更新", "Access not updated")}` : ""}</span></> : presentation.freshness}</span>
   </div>;
@@ -299,7 +300,7 @@ function SandQuota({ language, sand }: { language: Language; sand: CursorAccount
   const reset = sandCardReset(sand?.nextResetTimestampUtc, language, Boolean(sand?.usageError));
   const usageLabel = sand?.usageError ? (presentation.usagePercent == null ? localized(language, "未更新", "Not updated") : localized(language, "上次已用", "Last used")) : localized(language, "本周期已用", "Period used");
   const usageValue = presentation.usagePercent == null ? "—" : percent(presentation.usagePercent, language);
-  const usageNumber = presentation.usagePercent == null ? "—" : presentation.usagePercent.toFixed(1);
+  const usageNumber = presentation.usagePercent == null ? "—" : percentDigits(presentation.usagePercent);
   const usageTone = quotaTone(presentation.usagePercent);
   const accessText = sand?.accessError ? localized(language, "未更新", "Not updated") : sand?.accessGranted === true ? localized(language, "可访问", "Granted") : sand?.accessGranted === false ? localized(language, "不可访问", "Blocked") : localized(language, "未知", "Unknown");
   return <div className={`sand-status-panel ${presentation.incomplete ? "incomplete" : ""}`} role="group" aria-label={localized(language, "套餐额度状态", "Plan quota status")}>
@@ -334,6 +335,11 @@ function SandQuota({ language, sand }: { language: Language; sand: CursorAccount
         <span className="sand-detail-label">{reset.label}</span>
         <strong className="sand-detail-value" title={reset.title}>{reset.value}</strong>
         {reset.relative && <span className="sand-reset-relative">{reset.relative}</span>}
+      </div>
+      <div className="sand-detail-row sand-spend-row" title={presentation.spendTitle}>
+        <span className="sand-detail-label">{presentation.spendLabel}</span>
+        <strong className="sand-detail-value">{presentation.spendValue}</strong>
+        <span className="sand-spend-scope">{presentation.spendScope}</span>
       </div>
       {presentation.blockReason && <div className={`sand-status-alert ${sand?.accessError ? "stale" : ""}`}>{presentation.blockReasonLabel} <code>{presentation.blockReason}</code></div>}
       {presentation.incomplete && <div className="sand-status-note warning-text">{localized(language, "Sand 数据未完全更新", "Sand data is incomplete")} · {presentation.failures}</div>}
@@ -396,7 +402,8 @@ function clamp(value: number | null | undefined) { return typeof value === "numb
 function usagePercent(value: UsageAmount | undefined) { return clamp(value?.percentUsed ?? (value?.used != null && value.limit ? value.used / value.limit * 100 : null)); }
 function onDemandPresentation(usage: CursorAccountView["coreUsage"], language: Language) { const value = usage?.onDemand; const used = value?.used ?? 0; const limit = value?.limit; const fixedLimit = limit != null && limit > 0 ? limit : null; const team = usage?.onDemandLimitType?.toLocaleLowerCase() === "team"; if (fixedLimit == null) { const unlimited = value?.enabled === true && !team; return unlimited ? { percent: 0, tone: "normal", valueText: localized(language, "无限", "Unlimited"), costText: dollarsFromCents(used) } : { percent: 0, tone: "normal", valueText: used > 0 ? dollarsFromCents(used) : localized(language, "已禁用", "Disabled"), costText: null as string | null }; } const p = clamp(used / fixedLimit * 100) ?? 0; return { percent: p, tone: quotaTone(p, true), valueText: percent(p, language), costText: `${dollarsFromCents(used)} / ${dollarsFromCents(fixedLimit)}` }; }
 function localized(language: Language, zh: string, en: string) { return language === "en" ? en : zh; }
-function percent(value: number | null | undefined, language: Language = "zh-CN") { const result = clamp(value); return result == null ? localized(language, "暂无数据", "No data") : `${result.toFixed(1)}%`; }
+function percentDigits(value: number) { const text = value.toFixed(1); return text === "100.0" ? "100" : text; }
+function percent(value: number | null | undefined, language: Language = "zh-CN") { const result = clamp(value); return result == null ? localized(language, "暂无数据", "No data") : `${percentDigits(result)}%`; }
 function number(value: number) { return Number.isInteger(value) ? String(value) : value.toFixed(1); }
 function dollarsFromCents(value: number) { return `$${(value / 100).toFixed(2)}`; }
 function dateTime(value: number) { return new Date(value < 10_000_000_000 ? value * 1000 : value).toLocaleString(); }
@@ -411,15 +418,25 @@ function sandPresentation(sand: CursorAccountView["sand"], language: Language = 
   const compactUsage = sand?.usageError ? (p == null ? localized(language, "用量未更新", "Usage not updated") : `${localized(language, "上次", "Last")} ${percent(p, language)}`) : `${localized(language, "已用", "Used")} ${percent(p, language)}`;
   const access = sand?.accessError ? localized(language, "资格状态未更新", "Access not updated") : sand?.accessGranted === true ? localized(language, "资格可访问", "Access granted") : sand?.accessGranted === false ? localized(language, "资格不可访问", "Access blocked") : localized(language, "资格未知", "Access unknown");
   const accessTone = sand?.accessError ? "unknown" : sand?.accessGranted === true ? "granted" : sand?.accessGranted === false ? "blocked" : "unknown";
-  const incomplete = Boolean(sand?.usageError || sand?.accessError);
-  const failures = [sand?.usageError ? localized(language, "用量未更新", "Usage not updated") : null, sand?.accessError ? localized(language, "资格未更新", "Access not updated") : null].filter(Boolean).join(" · ");
+  const spendStale = Boolean(sand?.periodSpendError);
+  const incomplete = Boolean(sand?.usageError || sand?.accessError || spendStale);
+  // A failed usage stage already implies the spend stage was skipped; listing both would be noise.
+  const failures = [sand?.usageError ? localized(language, "用量未更新", "Usage not updated") : null, sand?.accessError ? localized(language, "资格未更新", "Access not updated") : null, spendStale && !sand?.usageError ? localized(language, "消费未更新", "Spend not updated") : null].filter(Boolean).join(" · ");
+  const spendCents = typeof sand?.periodSpendCents === "number" && Number.isFinite(sand.periodSpendCents) ? sand.periodSpendCents : null;
+  const spendValue = spendCents == null ? "—" : dollarsFromCents(spendCents);
+  const spendLabel = spendStale && spendCents != null ? localized(language, "上次消费", "Last spend") : localized(language, "消费", "Spend");
+  const spendScope = localized(language, "全模型", "All models");
+  const spendPeriodStart = sand?.currentPeriodStart ? dateTimeMinute(sand.currentPeriodStart, language) : null;
+  const spendTitle = language === "en"
+    ? `Sum of usage events for all models since the Bot period started${spendPeriodStart ? ` (${spendPeriodStart})` : ""}. The API cannot isolate Bot-only spend, and this is not the Total card's billing-cycle amount.`
+    : `自 Bot 周期开始${spendPeriodStart ? `（${spendPeriodStart}）` : ""}起全部模型的用量事件合计；接口无法拆出仅 Bot 的消费，也不等于 Total 的计费周期已用金额。`;
   const reset = sandResetText(sand?.nextResetTimestampUtc, language);
   const freshness = sand?.usageError ? `${localized(language, "Sand 数据未完全更新", "Sand data is incomplete")} (${failures})` : sand?.accessError ? `${reset} · ${localized(language, "资格未更新", "Access not updated")}` : reset;
   const blockReason = sandBlockReasonValue(sand);
   const blockReasonLabel = sand?.accessError ? localized(language, "上次受限原因", "Last block reason") : localized(language, "访问受限", "Access restricted");
   const planStale = Boolean(sand?.usageError);
   const planLabel = planStale ? localized(language, "上次套餐", "Last plan") : localized(language, "套餐", "Plan");
-  return { usagePercent: p, usage, compactUsage, plan: sandPlanValue(sand, language), planLabel, planStale, access, accessTone, blockReason, blockReasonLabel, freshness, failures, incomplete };
+  return { usagePercent: p, usage, compactUsage, plan: sandPlanValue(sand, language), planLabel, planStale, access, accessTone, blockReason, blockReasonLabel, freshness, failures, incomplete, spendValue, spendLabel, spendScope, spendTitle };
 }
 function sandResetText(value: string | null | undefined, language: Language, now = Date.now()) {
   if (!value) return localized(language, "重置时间未知", "Reset time unknown");

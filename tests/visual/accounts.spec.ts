@@ -12,12 +12,15 @@ const usage = (total: number, auto: number, api: number, onDemand = false) => ({
   error: null,
 });
 
-const sand = (percent: number, accessGranted: boolean | null, grokPlanLabel: string | null, blockReason: string | null = null) => ({
+const sand = (percent: number, accessGranted: boolean | null, grokPlanLabel: string | null, blockReason: string | null = null, periodSpendCents: number | null = null) => ({
   usagePercent: percent,
   hasAvailableUsage: true,
   hasNonZeroIncludedLimit: true,
   grokPlanLabel,
-  currentPeriodStart: null,
+  currentPeriodStart: periodSpendCents == null ? null : "2026-08-25T09:00:00Z",
+  periodSpendCents,
+  periodSpendUpdatedAt: periodSpendCents == null ? null : 1788000000,
+  periodSpendError: null,
   nextResetTimestampUtc: "2026-09-04T00:00:00Z",
   accessGranted,
   accessState: accessGranted === true ? "SAND_ACCESS_STATE_GRANTED" : accessGranted === false ? "SAND_ACCESS_STATE_BLOCKED" : null,
@@ -47,7 +50,7 @@ const accounts = [
     hasRefreshToken: true,
     isCurrent: false,
     coreUsage: usage(10, 1, 100),
-    sand: sand(0, false, "Heavy Plan", "PAYWALL"),
+    sand: sand(0, false, "Heavy Plan", "PAYWALL", 123456),
     auxiliaryErrors: [],
     lastError: null,
     lastErrorAt: null,
@@ -70,7 +73,7 @@ const accounts = [
     hasRefreshToken: true,
     isCurrent: true,
     coreUsage: usage(52, 44, 100),
-    sand: { ...sand(100, true, "Grok Bot Plan"), nextResetTimestampUtc: "2026-08-31T09:00:00Z" },
+    sand: { ...sand(100, true, "Grok Bot Plan", null, 1234), nextResetTimestampUtc: "2026-08-31T09:00:00Z" },
     auxiliaryErrors: [],
     lastError: null,
     lastErrorAt: null,
@@ -143,8 +146,9 @@ const accounts = [
     isCurrent: false,
     coreUsage: usage(48, 31, 22),
     sand: {
-      ...sand(65, true, "Grok Plan"),
+      ...sand(65, true, "Grok Plan", null, 250),
       accessError: "Sand 资格（sand-access）：HTTP 403",
+      periodSpendError: "周期消费（aggregated-usage）：HTTP 500",
     },
     auxiliaryErrors: [],
     lastError: null,
@@ -269,8 +273,12 @@ test("Cursor accounts dark desktop visual contract", async ({ page }) => {
   await expect(page.locator(".ghcp-account-card").first()).toContainText("local.current@example.invalid");
   await expect(page.locator(".ghcp-account-card").first().locator(".quota-item")).toHaveCount(4);
   await expect(page.locator(".ghcp-account-card").first().locator(".sand-status-panel")).toHaveCount(1);
-  await expect(page.locator(".ghcp-account-card").nth(0).locator(".sand-quota-ring-value")).toHaveText("100.0%");
+  await expect(page.locator(".ghcp-account-card").nth(0).locator(".sand-quota-ring-value")).toHaveText("100%");
   await expect(page.locator(".ghcp-account-card").nth(0).locator(".sand-quota-ring")).toContainText("本周期已用");
+  await expect(page.locator(".ghcp-account-card").nth(0).locator(".sand-spend-row")).toHaveText("消费$12.34全模型");
+  await expect(page.locator(".ghcp-account-card").nth(1).locator(".sand-spend-row")).toHaveText("消费$1234.56全模型");
+  await expect(page.locator(".ghcp-account-card").nth(2).locator(".sand-spend-row")).toHaveText("消费—全模型");
+  await expect(page.locator(".ghcp-account-card").nth(4).locator(".sand-spend-row")).toHaveText("上次消费$2.50全模型");
   await expect(page.locator(".ghcp-account-card").nth(0).locator(".sand-access-text")).toHaveText("可访问");
   await expect(page.locator(".ghcp-account-card").nth(0).locator(".sand-reset-row")).toContainText("重置待刷新");
   await expect(page.locator(".ghcp-account-card").nth(1).locator(".sand-access-text")).toHaveText("不可访问");
@@ -398,7 +406,9 @@ test("Cursor accounts list desktop visual contract", async ({ page }) => {
   await page.getByRole("button", { name: "列表布局" }).click();
   await expect(page.getByRole("table", { name: "Cursor 账号列表" })).toBeVisible();
   await expect(page.locator(".table-sand-status")).toHaveCount(6);
-  await expect(page.locator(".table-sand-status").first()).toContainText("100.0%");
+  await expect(page.locator(".table-sand-status").first()).toContainText("100%");
+  await expect(page.locator(".table-sand-status").first().locator(".table-sand-spend")).toHaveText("消费 $12.34 · 全模型");
+  await expect(page.locator(".table-sand-status").nth(4).locator(".table-sand-spend")).toHaveText("上次消费 $2.50 · 全模型");
   await expect(page.locator(".table-sand-status").nth(3)).toContainText("用量未更新");
   await expect(page.locator(".table-sand-status").nth(4)).toContainText("资格未更新");
   const tableOverflow = await page.locator(".account-table-container").evaluate((container) => getComputedStyle(container).overflowX);

@@ -304,7 +304,7 @@ describe("multi-account workspace", () => {
     await screen.findByText("one@example.invalid");
 
     const details = screen.getByRole("group", { name: "套餐额度状态" });
-    expect(details.querySelector(".sand-quota-ring-value")).toHaveTextContent("100.0%");
+    expect(details.querySelector(".sand-quota-ring-value")).toHaveTextContent(/^100%$/);
     expect(details.querySelector(".sand-quota-ring")).toHaveTextContent("本周期已用");
     expect(details).toHaveTextContent("可访问");
     expect(details.querySelector(".sand-reset-row")).toHaveTextContent("重置待刷新");
@@ -391,6 +391,70 @@ describe("multi-account workspace", () => {
     expect(details.querySelector(".sand-quota-ring")).toHaveClass("high", "stale");
     expect(details.querySelector(".sand-quota-ring")).toHaveAttribute("aria-label", "上次已用 64.5%");
     expect(within(details).queryByText(/^套餐$/)).not.toBeInTheDocument();
+  });
+
+  it("drops the decimal whenever a percentage would render as 100.0%", async () => {
+    listedAccounts = [{
+      ...account(),
+      coreUsage: { ...account().coreUsage!, total: { enabled: true, used: 100, limit: 100, remaining: 0, percentUsed: 100 }, autoComposer: { enabled: true, used: null, limit: null, remaining: null, percentUsed: 99.96 } },
+      sand: { ...account().sand!, usagePercent: 99.9 },
+    }];
+    render(<App />);
+    await screen.findByText("one@example.invalid");
+
+    const card = screen.getByText("one@example.invalid").closest("article")!;
+    const values = [...card.querySelectorAll(".quota-pct")].map((node) => node.textContent);
+    expect(values).toEqual(["100%", "100%", "100%", "已禁用"]);
+    expect(card.querySelector(".sand-quota-ring-value")).toHaveTextContent(/^99\.9%$/);
+  });
+
+  it("shows the all-model period spend as a third Sand row with the same row grammar", async () => {
+    listedAccounts = [{
+      ...account(),
+      sand: { ...account().sand!, currentPeriodStart: "2026-08-26T17:22:03.913Z", periodSpendCents: 1234.5, periodSpendUpdatedAt: 1788000000, periodSpendError: null },
+    }];
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByText("one@example.invalid");
+
+    const details = screen.getByRole("group", { name: "套餐额度状态" });
+    expect(details).not.toHaveClass("incomplete");
+    const row = details.querySelector(".sand-spend-row")!;
+    expect(row).toHaveTextContent("消费$12.35全模型");
+    expect(row.querySelector(".sand-detail-label")).toHaveTextContent(/^消费$/);
+    expect(row.querySelector(".sand-detail-value")).toHaveTextContent("$12.35");
+    expect(row.querySelector(".sand-spend-scope")).toHaveTextContent("全模型");
+    expect(row).toHaveAttribute("title", expect.stringContaining("全部模型"));
+    expect(row).toHaveAttribute("title", expect.stringContaining("2026-08-2"));
+    expect(details.querySelector(".sand-quota-ring")).toHaveTextContent("本周期已用");
+    expect(details.querySelector(".sand-quota-ring")).not.toHaveTextContent("$");
+    expect(details).not.toHaveTextContent("消费未更新");
+
+    await user.click(screen.getByRole("button", { name: "列表布局" }));
+    expect(screen.getByRole("table", { name: "Cursor 账号列表" }).querySelector(".table-sand-spend")).toHaveTextContent("消费 $12.35 · 全模型");
+  });
+
+  it("keeps the last period spend as stale and shows unknown spend as a dash", async () => {
+    listedAccounts = [
+      { ...account("cursor_stale", "stale@example.invalid"), sand: { ...account().sand!, periodSpendCents: 250, periodSpendUpdatedAt: 1, periodSpendError: "周期消费（aggregated-usage）：HTTP 500" } },
+      { ...account("cursor_unknown", "unknown@example.invalid"), sand: { ...account().sand!, periodSpendCents: null, periodSpendError: null } },
+      { ...account("cursor_legacy", "legacy@example.invalid") },
+    ];
+    render(<App />);
+    await screen.findByText("stale@example.invalid");
+
+    const stale = screen.getByText("stale@example.invalid").closest("article")!.querySelector(".sand-status-panel")!;
+    expect(stale).toHaveClass("incomplete");
+    expect(stale.querySelector(".sand-spend-row")).toHaveTextContent("上次消费$2.50全模型");
+    expect(stale).toHaveTextContent("Sand 数据未完全更新 · 消费未更新");
+    expect(stale.querySelector(".sand-quota-ring-value")).toHaveTextContent("64.5%");
+
+    for (const email of ["unknown@example.invalid", "legacy@example.invalid"]) {
+      const panel = screen.getByText(email).closest("article")!.querySelector(".sand-status-panel")!;
+      expect(panel).not.toHaveClass("incomplete");
+      expect(panel.querySelector(".sand-spend-row")).toHaveTextContent("消费—全模型");
+      expect(panel).not.toHaveTextContent("消费未更新");
+    }
   });
 
   it("does not present Cursor's explicit NONE sentinel as a restriction", async () => {
