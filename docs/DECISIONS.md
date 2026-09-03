@@ -292,3 +292,11 @@ Dependabot alert #1（`GHSA-wrw7-89jp-8q8g` / `RUSTSEC-2024-0429`）来自 Linux
 在建立公开跟踪 Issue、记录上述依赖链与可达性审计后，可以用 `tolerable_risk` 关闭 Dependabot 告警，并在 dismissal comment 中链接跟踪 Issue。跟踪项持续到以下任一条件成立：Tauri 发布可用的 GTK4/glib ≥ 0.20 路径、可信上游发布兼容 backport，或本项目移除 Linux GTK 路径。届时必须重新打开评估并优先采用上游修复；任何发现 `VariantStrIter` / `array_iter_str()` 新调用的依赖升级都会使本决定失效并成为 release blocker。
 
 决策依据：GitHub Advisory `GHSA-wrw7-89jp-8q8g`；Tauri issue `#15035`；gtk-rs-core PR `#2009`、issue `#2010` 及维护者关于“0.18 is long EOL and there won't be any new releases”的明确答复；`cargo tree --target all -i glib@0.18.5` 与本机完整 registry 源码反向搜索；用户要求处理 Dependabot #1。
+
+## D-028 `stable-release` Environment 允许 `main` workflow ref
+
+`v0.1.2` 第三次 stable 运行的 `verify-candidate` job 已完整通过，随后 `publish` job 在分配 runner 前被 GitHub Environment 拒绝：`Branch "main" is not allowed to deploy to stable-release due to environment protection rules.` 当前 Environment 只有自定义 `v*` tag policy，但 `Publish stable release` 的既定入口是从默认分支手动 `workflow_dispatch`；输入的候选 tag 在 job 内检出和校验，不会改变 workflow run 自身的 `main` ref。因此 tag policy 与当前工作流结构不匹配，任何手动 stable 发布都会在 Environment 层失败。
+
+`stable-release` 的自定义 deployment branch policies 保留现有 `v*` tag，并新增且只新增 `main` branch。required reviewer 仍为 owner，`prevent_self_review=false`、`can_admins_bypass=false` 均不变；其他 branch/tag 不允许部署。允许 `main` 只让手动 dispatch 进入既有 protected Environment，不替代精确 tag/SHA、Release Acceptance Issue、required checks、零 blocker、Draft 资产/SHA256/attestation 的批准前后双重校验。
+
+决策依据：stable 工作流运行 `33770452607` 的成功 `verify-candidate` job、失败 publish check annotation 与 Environment API 当前配置；`.github/workflows/publish-stable.yml` 的 `workflow_dispatch` + 输入 tag 结构；用户“直接改吧，直到通过为止”的明确授权；本文件 D-015、D-024–D-026。
