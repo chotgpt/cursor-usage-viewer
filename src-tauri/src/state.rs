@@ -70,11 +70,15 @@ impl AppState {
         account: CursorAccountRecord,
         mark_current: bool,
     ) -> AppResult<CursorAccountView> {
-        let id = account.id.clone();
-        self.store
+        // The store may merge the incoming record into an existing primary with a
+        // different id (same auth identity or email), so the persisted id is the
+        // one it returns, not the one the caller generated.
+        let id = self
+            .store
             .lock()
             .map_err(|_| AppError::StateUnavailable)?
-            .upsert(account)?;
+            .upsert(account)?
+            .id;
         if mark_current {
             *self
                 .current_id
@@ -343,6 +347,31 @@ mod tests {
         let reopened = AppState::new(directory.path().to_path_buf()).unwrap();
         assert_eq!(reopened.list().unwrap().len(), 1);
         assert!(!reopened.list().unwrap()[0].is_current);
+    }
+
+    #[test]
+    fn upserting_a_duplicate_identity_under_a_new_id_returns_the_merged_primary() {
+        let directory = tempdir().unwrap();
+        let state = AppState::new(directory.path().to_path_buf()).unwrap();
+        let mut existing =
+            CursorAccountRecord::fake_for_test("cursor_web", "same@example.invalid", "a.b.c");
+        existing.auth_id = Some("auth0|user_same".to_owned());
+        state.upsert(existing, false).unwrap();
+
+        // Local import always uses the fixed id and a different token; web login
+        // derives its id from the token hash. Both collide with the stored copy
+        // of the same account only through the auth identity.
+        let mut local =
+            CursorAccountRecord::fake_for_test("local-cursor", "same@example.invalid", "d.e.f");
+        local.auth_id = Some("auth0|user_same".to_owned());
+        let view = state.upsert(local, true).unwrap();
+
+        assert_eq!(view.id, "cursor_web");
+        assert!(view.is_current);
+        let views = state.list().unwrap();
+        assert_eq!(views.len(), 1);
+        assert!(views[0].is_current);
+        assert_eq!(state.active_record().unwrap().id, "cursor_web");
     }
 
     #[test]
