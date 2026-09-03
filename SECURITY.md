@@ -10,7 +10,7 @@
 
 用户点击单账号、选中账号或全部账号刷新，或启用的自动刷新任务到期后，应用按 `docs/DECISIONS.md` §D-012、§D-020、§D-022 访问固定 Cursor 第一方端点。批量刷新逐账号顺序执行，手动与自动动作共用单并发协调；一个账号或可选数据源失败不影响其他账号，下个周期仍可重试。关闭自动刷新时不会产生后台 Cursor 请求。
 
-网页登录只在用户从添加账号弹层主动开始后运行。应用使用随机 challenge/uuid 打开受限的 Cursor 登录页，并由 Rust 每 2 秒轮询一次受限的 Cursor `auth/poll`，最长 300 秒，用户可取消。Token、PKCE verifier 和完整轮询 URL 不得进入普通 DTO、日志、错误、DOM 持久化或视觉快照；成功后前端只接收脱敏账号视图。
+网页登录只在用户从添加账号弹层主动开始后运行。应用使用随机 challenge/uuid 打开受限的 Cursor 登录页，并由 Rust 每 2 秒轮询一次受限的 Cursor `auth/poll`，最长 300 秒，用户可取消。Token、PKCE verifier 和完整轮询 URL 不得进入普通 DTO、日志、错误、DOM 持久化或视觉快照；成功后前端只接收脱敏账号视图。账号落盘后，应用会对该新账号立即执行一次与手动刷新相同的额度查询（`docs/DECISIONS.md` §D-023）；若此时有其他刷新正在进行或查询失败，登录仍视为成功并返回已保存的视图。本机导入、粘贴 Token 和 JSON 文件导入只落盘，不触发网络请求。
 
 ## 固定网络白名单
 
@@ -23,13 +23,14 @@ GET  https://api2.cursor.sh/auth/full_stripe_profile
 GET  https://api2.cursor.sh/auth/stripe_profile
 GET  https://cursor.com/api/usage-summary
 POST https://api2.cursor.sh/aiserver.v1.DashboardService/GetSandUsageStatus
+POST https://api2.cursor.sh/aiserver.v1.DashboardService/GetAggregatedUsageEvents
 POST https://cursor.com/api/dashboard/get-sand-access-status
 GET  https://api2.cursor.sh/auth/poll?uuid=<generated>&verifier=<secret>
 ```
 
 系统浏览器只允许打开 `https://cursor.com/loginDeepControl`，并且只允许应用生成的 `challenge`、`uuid` 和固定 `mode=login` 参数。`auth/poll` 只允许应用生成的 `uuid`、`verifier` 参数；二者均使用专用验证器，不接受用户提供的主机、路径或附加参数。
 
-OAuth Token 端点只在手动或已启用的自动刷新中，Access Token 不可解析或五分钟内过期时使用；失败后继续尝试旧 Access Token。`usage-summary` 是 Total、Auto + Composer、API、On-Demand 和计费周期的唯一实时真源。Sand 用量端点使用 Access Token 的 Bearer 认证、Connect 协议版本和 `{}` 请求体；Sand 资格端点使用已经确认的 `Origin: https://cursor.com` 与 WorkOS Cookie。两者都是独立可选数据源。
+OAuth Token 端点只在手动或已启用的自动刷新中，Access Token 不可解析或五分钟内过期时使用；失败后继续尝试旧 Access Token。`usage-summary` 是 Total、Auto + Composer、API、On-Demand 和计费周期的唯一实时真源。Sand 用量端点使用 Access Token 的 Bearer 认证、Connect 协议版本和 `{}` 请求体；Sand 资格端点使用已经确认的 `Origin: https://cursor.com` 与 WorkOS Cookie。`GetAggregatedUsageEvents` 使用与 Sand 用量相同的 Bearer/Connect 请求头，请求体只含由 Sand 周期起点和当前时间派生的 `startDate`/`endDate` 毫秒字符串，用于汇总 Bot 周期内全部模型的 `totalCents`；只有 Sand 用量阶段成功并返回周期起点时才调用。三者都是独立可选数据源。
 
 旧的 `DashboardService/GetCurrentPeriodUsage` 已由 D-012 取消，不得继续加入生产白名单或作为 Free 账号 fallback。
 
@@ -59,7 +60,7 @@ Linux AppImage 使用标准 Tauri updater。deb/rpm 只有在用户明确点击�
 
 Cursor 请求头必须标记为敏感。应用不记录 Token、Cookie、邮箱、请求体或响应正文。HTTP/JSON 错误只可返回状态码、Content-Type、响应字节长度和“空体 / HTML / JSON 形态 / 其他”分类等结构化证据，不得包含正文片段。更新错误同样必须脱敏、截断，不得记录 Secrets、环境变量、用户名路径、任意 manifest 正文或包管理器完整输出。
 
-外部字段缺失保持未知，不转换为 0。核心额度请求失败时保留上一次核心快照并记录脱敏错误；Sand 用量或资格失败时保留其独立的上次成功结果，不得丢弃核心额度。
+外部字段缺失保持未知，不转换为 0。核心额度请求失败时保留上一次核心快照并记录脱敏错误；Sand 用量、资格或周期消费失败时保留各自独立的上次成功结果，不得丢弃核心额度。周期消费响应缺少 `aggregations` 数组时保持未知，不显示为 $0。
 
 ## 测试边界
 
