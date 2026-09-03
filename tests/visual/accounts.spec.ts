@@ -667,6 +667,35 @@ test("Cursor five-button toolbar matches Cockpit after capability mapping", asyn
   await expect(page).toHaveScreenshot("cursor-accounts-five-button-toolbar-dark.png", { fullPage: false });
 });
 
+test("Cursor account refresh keeps its rotating progress indicator visible while busy", async ({ page }) => {
+  await page.addInitScript((fixtureAccounts) => {
+    localStorage.setItem("cursor-theme", "dark");
+    (window as typeof window & { __VISUAL_ACCOUNTS__: typeof fixtureAccounts }).__VISUAL_ACCOUNTS__ = [fixtureAccounts[0]];
+  }, accounts);
+  await page.goto("/");
+  await page.evaluate(() => {
+    const internals = (window as typeof window & {
+      __TAURI_INTERNALS__: { invoke: (command: string, args?: unknown) => Promise<unknown> };
+    }).__TAURI_INTERNALS__;
+    const invoke = internals.invoke;
+    internals.invoke = async (command, args) => {
+      if (command === "refresh_cursor_account") {
+        await new Promise((resolve) => setTimeout(resolve, 5_000));
+        return (window as typeof window & { __VISUAL_ACCOUNTS__: typeof accounts }).__VISUAL_ACCOUNTS__[0];
+      }
+      return invoke(command, args);
+    };
+  });
+
+  const refresh = page.getByRole("button", { name: "刷新 ocean.viewer@example.invalid" });
+  await refresh.click();
+  const spinner = refresh.locator(".loading-spinner");
+  await expect(refresh).toBeDisabled();
+  await expect(spinner).toHaveCSS("animation-name", "loading-spin");
+  await page.waitForTimeout(300);
+  expect(await refresh.evaluate((element) => getComputedStyle(element).opacity)).toBe("1");
+});
+
 test("Cursor privacy mode removes sensitive DOM and accessible names", async ({ page }) => {
   await page.addInitScript((fixtureAccounts) => {
     localStorage.setItem("cursor-theme", "dark");

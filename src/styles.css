@@ -9,6 +9,7 @@ body { overflow: hidden; }
 button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
 button:disabled { opacity: .42; cursor: not-allowed; }
+button[aria-busy="true"]:disabled { opacity: 1; cursor: progress; }
 .modal-inline-error { margin: 10px 0 0; color: var(--danger); font-size: 12px; }
 button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
   outline: 2px solid var(--primary, #38a9ff);
