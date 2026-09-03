@@ -196,6 +196,7 @@ test.beforeEach(async ({ page }) => {
           const currentAccounts = (window as typeof window & { __VISUAL_ACCOUNTS__: typeof fixtureAccounts }).__VISUAL_ACCOUNTS__;
           const mode = (window as typeof window & { __VISUAL_MODE__: string }).__VISUAL_MODE__;
           if (command === "list_cursor_accounts") return currentAccounts;
+          if (command === "get_cursor_settings") return { schemaVersion: 1, autoRefreshMinutes: 10 };
           if (command === "get_update_settings") return { schemaVersion: 1, autoCheck: false, checkIntervalHours: 1, autoInstall: false, remindOnUpdate: true, lastCheckTime: 0, lastRunVersion: "", skippedVersion: "", pendingNotes: null };
           if (command === "consume_version_change") return (window as typeof window & { __VISUAL_VERSION_CHANGE__: unknown }).__VISUAL_VERSION_CHANGE__;
           if (command === "plugin:app|version") return "0.1.0";
@@ -344,7 +345,7 @@ test("Cursor accounts English dark visual contract", async ({ page }) => {
     localStorage.setItem("cursor-theme", "dark");
   });
   await page.goto("/");
-  await expect(page.getByRole("button", { name: "Read local account" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add account" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Plan filter" })).toBeVisible();
   await expect(page.getByRole("group", { name: "Plan quota status" }).first().locator(".sand-reset-row")).toContainText("Needs refresh");
   const futureReset = page.getByRole("group", { name: "Plan quota status" }).nth(1).locator(".sand-reset-row");
@@ -461,23 +462,25 @@ test("Cursor version-change dialog visual and keyboard contract", async ({ page 
 test("Cursor settings general dark visual contract", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("cursor-theme", "dark"));
   await page.goto("/");
-  await page.getByRole("button", { name: "设置" }).click();
+  await page.getByRole("complementary").getByRole("button", { name: "设置" }).click();
   await expect(page.getByRole("combobox", { name: "主题" })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "自动刷新额度" })).toHaveValue("10");
   await expect(page).toHaveScreenshot("cursor-settings-general-dark.png", { fullPage: false });
 });
 
 test("Cursor settings general light visual contract", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("cursor-theme", "light"));
   await page.goto("/");
-  await page.getByRole("button", { name: "设置" }).click();
+  await page.getByRole("complementary").getByRole("button", { name: "设置" }).click();
   await expect(page.getByRole("combobox", { name: "主题" })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "自动刷新额度" })).toHaveValue("10");
   await expect(page).toHaveScreenshot("cursor-settings-general-light.png", { fullPage: false });
 });
 
 test("Cursor settings about visual contract", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("cursor-theme", "dark"));
   await page.goto("/");
-  await page.getByRole("button", { name: "设置" }).click();
+  await page.getByRole("complementary").getByRole("button", { name: "设置" }).click();
   await page.getByRole("tab", { name: "关于" }).click();
   await expect(page.getByText("v0.1.0 · CC BY-NC-SA 4.0")).toBeVisible();
   await expect(page).toHaveScreenshot("cursor-settings-about-dark.png", { fullPage: false });
@@ -546,12 +549,25 @@ test("Cursor error message visual contract", async ({ page }) => {
   await expect(page).toHaveScreenshot("cursor-accounts-error-dark.png", { fullPage: false });
 });
 
-test("Cursor import modal visual contract", async ({ page }) => {
+test("Cursor add-account web-login modal visual contract", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("cursor-theme", "dark"));
   await page.goto("/");
-  await page.getByRole("button", { name: "粘贴导入" }).click();
-  await expect(page.getByRole("dialog", { name: "粘贴 Cockpit JSON" })).toBeVisible();
-  await expect(page).toHaveScreenshot("cursor-import-modal-dark.png", { fullPage: false });
+  await page.getByRole("button", { name: "添加账号" }).click();
+  const dialog = page.getByRole("dialog", { name: "添加 Cursor 账号" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("tab")).toHaveText(["网页登录", "Token / JSON", "本机导入"]);
+  await expect(dialog.getByRole("tab", { name: "网页登录" })).toHaveAttribute("aria-selected", "true");
+  await expect(page).toHaveScreenshot("cursor-add-account-web-login-dark.png", { fullPage: false });
+});
+
+test("Cursor add-account token modal visual contract", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("cursor-theme", "dark"));
+  await page.goto("/");
+  await page.getByRole("button", { name: "添加账号" }).click();
+  const dialog = page.getByRole("dialog", { name: "添加 Cursor 账号" });
+  await dialog.getByRole("tab", { name: "Token / JSON" }).click();
+  await expect(dialog.getByRole("textbox", { name: "Cursor Access Token 或 Cockpit JSON" })).toBeVisible();
+  await expect(page).toHaveScreenshot("cursor-add-account-token-dark.png", { fullPage: false });
 });
 
 test("Cursor export modal visual contract", async ({ page }) => {
@@ -585,12 +601,30 @@ test("Cursor delete modal visual contract", async ({ page }) => {
   await expect(page).toHaveScreenshot("cursor-delete-modal-dark.png", { fullPage: false });
 });
 
-test("Cursor import modal light visual contract", async ({ page }) => {
+test("Cursor add-account local-import modal light visual contract", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("cursor-theme", "light"));
   await page.goto("/");
-  await page.getByRole("button", { name: "粘贴导入" }).click();
-  await expect(page.getByRole("dialog", { name: "粘贴 Cockpit JSON" })).toBeVisible();
-  await expect(page).toHaveScreenshot("cursor-import-modal-light.png", { fullPage: false });
+  await page.getByRole("button", { name: "添加账号" }).click();
+  const dialog = page.getByRole("dialog", { name: "添加 Cursor 账号" });
+  await dialog.getByRole("tab", { name: "本机导入" }).click();
+  await expect(dialog.getByRole("button", { name: "导入本机当前 Cursor 账号" })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "选择 JSON 文件" })).toBeVisible();
+  await expect(page).toHaveScreenshot("cursor-add-account-local-light.png", { fullPage: false });
+});
+
+test("Cursor add-account English 900 by 600 visual contract", async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 600 });
+  await page.addInitScript(() => {
+    localStorage.setItem("cursor-language", "en");
+    localStorage.setItem("cursor-theme", "dark");
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Add account" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add Cursor account" });
+  await dialog.getByRole("tab", { name: "Local import" }).click();
+  await expect(dialog.getByRole("button", { name: "Import current Cursor account" })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Choose JSON file" })).toBeVisible();
+  await expect(page).toHaveScreenshot("cursor-add-account-english-900x600-dark.png", { fullPage: false });
 });
 
 test("Cursor tag edit modal visual contract", async ({ page }) => {
@@ -629,7 +663,7 @@ test("Cursor five-button toolbar matches Cockpit after capability mapping", asyn
   await page.goto("/");
   const buttons = page.locator(".toolbar-right > button");
   await expect(buttons).toHaveCount(5);
-  expect(await buttons.evaluateAll((items) => items.map((item) => item.getAttribute("aria-label")))).toEqual(["读取本机账号", "刷新全部", "隐藏邮箱", "粘贴导入", "导出"]);
+  expect(await buttons.evaluateAll((items) => items.map((item) => item.getAttribute("aria-label")))).toEqual(["添加账号", "刷新全部", "隐藏邮箱", "导出", "设置"]);
   await expect(page).toHaveScreenshot("cursor-accounts-five-button-toolbar-dark.png", { fullPage: false });
 });
 

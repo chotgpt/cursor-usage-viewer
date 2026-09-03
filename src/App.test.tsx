@@ -2,20 +2,25 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { save } from "@tauri-apps/plugin-dialog";
+import { listen } from "@tauri-apps/api/event";
+import { open, save } from "@tauri-apps/plugin-dialog";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import App from "./App";
 import type { CursorAccountView } from "./types";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/app", () => ({ getBundleType: vi.fn(async () => "nsis"), getVersion: vi.fn(async () => "1.1.0") }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => () => undefined) }));
-vi.mock("@tauri-apps/plugin-dialog", () => ({ save: vi.fn() }));
+vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(), save: vi.fn() }));
 vi.mock("@tauri-apps/plugin-autostart", () => ({ disable: vi.fn(), enable: vi.fn(), isEnabled: vi.fn(async () => false) }));
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn(), revealItemInDir: vi.fn() }));
 vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: vi.fn() }));
 vi.mock("@tauri-apps/plugin-updater", () => ({ check: vi.fn() }));
 const mockedInvoke = vi.mocked(invoke);
+const mockedListen = vi.mocked(listen);
 const mockedSave = vi.mocked(save);
+const mockedOpen = vi.mocked(open);
+const mockedOpenUrl = vi.mocked(openUrl);
 let versionChange: { fromVersion: string; toVersion: string; notes: string } | null = null;
 let listedAccounts: CursorAccountView[] = [];
 
@@ -45,10 +50,15 @@ describe("multi-account workspace", () => {
       if (command === "list_cursor_accounts") return listedAccounts;
       if (command === "get_update_settings") return { schemaVersion: 1, autoCheck: false, checkIntervalHours: 1, autoInstall: false, remindOnUpdate: true, lastCheckTime: 0, lastRunVersion: "", skippedVersion: "", pendingNotes: null };
       if (command === "get_desktop_settings") return { schemaVersion: 1, closeBehavior: "ask", startMinimized: false, rememberWindow: false, windowX: null, windowY: null, windowWidth: null, windowHeight: null };
+      if (command === "get_cursor_settings") return { schemaVersion: 1, autoRefreshMinutes: 10 };
+      if (command === "save_cursor_settings") return (args as { settings: { schemaVersion: number; autoRefreshMinutes: number } }).settings;
       if (command === "consume_version_change") return versionChange;
       if (command === "get_release_history") return [{ version: "0.1.0", date: "Unreleased", items: ["Cockpit parity fixes"] }];
       if (command === "refresh_cursor_account") return { ...account(), lastUsed: 3 };
       if (command === "import_cockpit_accounts_json") return [account("cursor_imported", "imported@example.invalid")];
+      if (command === "start_cursor_login") return { loginId: "test-login", verificationUri: "https://cursor.com/loginDeepControl?challenge=test&uuid=00000000-0000-0000-0000-000000000000&mode=login", expiresIn: 300, intervalSeconds: 2 };
+      if (command === "complete_cursor_login") return new Promise(() => undefined);
+      if (command === "cancel_cursor_login") return null;
       if (command === "export_cursor_accounts") return JSON.stringify([{ id: "cursor_one", access_token: "fake.secret.token" }]);
       if (command === "save_cursor_accounts_export" || command === "reveal_saved_cursor_accounts_export") return null;
       if (command === "update_cursor_account_tags") {
@@ -59,7 +69,7 @@ describe("multi-account workspace", () => {
       throw new Error(`unexpected command ${command} ${JSON.stringify(args)}`);
     });
   });
-  afterEach(() => { Reflect.deleteProperty(window, "__TAURI_INTERNALS__"); Reflect.deleteProperty(window, "matchMedia"); Reflect.deleteProperty(navigator, "clipboard"); vi.restoreAllMocks(); mockedInvoke.mockReset(); mockedSave.mockReset(); });
+  afterEach(() => { Reflect.deleteProperty(window, "__TAURI_INTERNALS__"); Reflect.deleteProperty(window, "matchMedia"); Reflect.deleteProperty(navigator, "clipboard"); vi.restoreAllMocks(); mockedInvoke.mockReset(); mockedListen.mockReset(); mockedSave.mockReset(); mockedOpen.mockReset(); mockedOpenUrl.mockReset(); });
 
   it("restores local accounts on startup without reading or refreshing Cursor", async () => {
     const { container } = render(<App />);
@@ -412,11 +422,11 @@ describe("multi-account workspace", () => {
     expect(screen.getByRole("note")).toBeVisible();
     const toggle = screen.getByRole("button", { name: "Cursor 账号管理说明（点击展开/收起）" });
     expect(toggle).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText("账号凭据仅用于你主动发起的读取、导入、刷新和导出操作。")).toBeVisible();
+    expect(screen.getByText("账号凭据仅用于你主动发起的读取、导入、刷新和导出，以及你明确启用的定时刷新。")).toBeVisible();
 
     await user.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByText("账号凭据仅用于你主动发起的读取、导入、刷新和导出操作。")).not.toBeInTheDocument();
+    expect(screen.queryByText("账号凭据仅用于你主动发起的读取、导入、刷新和导出，以及你明确启用的定时刷新。")).not.toBeInTheDocument();
     expect(localStorage.getItem("cursor-flow-notice-collapsed")).toBe("1");
 
     unmount();
@@ -424,23 +434,47 @@ describe("multi-account workspace", () => {
     expect(await screen.findByRole("button", { name: "Cursor 账号管理说明（点击展开/收起）" })).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("uses distinct icons for local account reading and JSON import", async () => {
+  it("uses one add-account entry that exposes all approved import paths", async () => {
+    const user = userEvent.setup();
     render(<App />);
     await screen.findByText("one@example.invalid");
-
-    const readLocalButton = screen.getByRole("button", { name: "读取本机账号" });
-    const importButton = screen.getByRole("button", { name: "粘贴导入" });
-    expect(readLocalButton.querySelector(".lucide-hard-drive-download")).toBeInTheDocument();
-    expect(importButton.querySelector(".lucide-download")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "添加账号" }));
+    expect(screen.getByRole("dialog", { name: "添加 Cursor 账号" })).toBeVisible();
+    expect(screen.getAllByRole("tab")).toHaveLength(3);
   });
 
-  it("offers real local-read and paste-import actions in the empty state", async () => {
+  it("opens only the backend-approved login URL and cancels an in-flight login", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByText("one@example.invalid");
+    await user.click(screen.getByRole("button", { name: "添加账号" }));
+    await user.click(screen.getByRole("button", { name: "在浏览器中登录" }));
+    await waitFor(() => expect(mockedOpenUrl).toHaveBeenCalledWith(expect.stringMatching(/^https:\/\/cursor\.com\/loginDeepControl\?/)));
+    await user.click(screen.getByRole("button", { name: "取消登录" }));
+    await waitFor(() => expect(mockedInvoke).toHaveBeenCalledWith("cancel_cursor_login", { loginId: "test-login" }));
+    expect(screen.queryByRole("dialog", { name: "添加 Cursor 账号" })).not.toBeInTheDocument();
+  });
+
+  it("applies a redacted automatic-refresh event to the existing account", async () => {
+    let autoRefreshHandler: ((event: { event: string; id: number; payload: unknown }) => void) | undefined;
+    mockedListen.mockImplementation(async (event, handler) => {
+      if (event === "cursor-accounts-auto-refreshed") autoRefreshHandler = handler as typeof autoRefreshHandler;
+      return () => undefined;
+    });
+    render(<App />);
+    await screen.findByText("one@example.invalid");
+    const refreshed = account("cursor_one", "refreshed@example.invalid");
+    act(() => autoRefreshHandler?.({ event: "cursor-accounts-auto-refreshed", id: 1, payload: [{ accountId: refreshed.id, result: refreshed, error: null }] }));
+    expect(await screen.findByText("refreshed@example.invalid")).toBeVisible();
+    expect(document.body.textContent).not.toContain("accessToken");
+  });
+
+  it("uses the same add-account entry in the empty state", async () => {
     listedAccounts = [];
     render(<App />);
 
     const emptyState = await screen.findByRole("region", { name: "还没有账号" });
-    expect(within(emptyState).getByRole("button", { name: "读取本机账号" })).toBeVisible();
-    expect(within(emptyState).getByRole("button", { name: "粘贴导入" })).toBeVisible();
+    expect(within(emptyState).getByRole("button", { name: "添加账号" })).toBeVisible();
   });
 
   it("filters memberships with the Cockpit multi-select dropdown", async () => {
@@ -540,16 +574,17 @@ describe("multi-account workspace", () => {
     const user = userEvent.setup();
     render(<App />);
     await screen.findByText("one@example.invalid");
-    const opener = screen.getByRole("button", { name: "粘贴导入" });
+    const opener = screen.getByRole("button", { name: "添加账号" });
     await user.click(opener);
 
-    const dialog = screen.getByRole("dialog", { name: "粘贴 Cockpit JSON" });
-    const cancel = within(dialog).getByRole("button", { name: "取消" });
-    cancel.focus();
+    const dialog = screen.getByRole("dialog", { name: "添加 Cursor 账号" });
+    await user.click(within(dialog).getByRole("tab", { name: "本机导入" }));
+    const lastAction = within(dialog).getByRole("button", { name: "选择 JSON 文件" });
+    lastAction.focus();
     await user.tab();
     expect(within(dialog).getByRole("button", { name: "关闭" })).toHaveFocus();
     await user.keyboard("{Escape}");
-    expect(screen.queryByRole("dialog", { name: "粘贴 Cockpit JSON" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "添加 Cursor 账号" })).not.toBeInTheDocument();
     expect(opener).toHaveFocus();
   });
 
@@ -657,7 +692,7 @@ describe("multi-account workspace", () => {
     const user = userEvent.setup();
     render(<App />);
     await screen.findByText("one@example.invalid");
-    await user.click(screen.getByRole("button", { name: /设置$/ }));
+    await user.click(screen.getAllByRole("button", { name: "设置" })[0]);
     expect(screen.getByRole("combobox", { name: "主题" })).toBeVisible();
 
     expect(screen.getByRole("tablist", { name: "设置类别" })).toBeVisible();
@@ -671,6 +706,17 @@ describe("multi-account workspace", () => {
     const history = await screen.findByRole("dialog", { name: "版本历史" });
     expect(within(history).getByText("v0.1.0")).toBeVisible();
     expect(within(history).getByText("Cockpit parity fixes")).toBeVisible();
+  });
+
+  it("shows the independent 10-minute Cursor refresh default and saves a preset", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByText("one@example.invalid");
+    await user.click(screen.getAllByRole("button", { name: "设置" })[0]);
+    const refresh = await screen.findByRole("combobox", { name: "自动刷新额度" });
+    expect(refresh).toHaveValue("10");
+    await user.selectOptions(refresh, "5");
+    await waitFor(() => expect(mockedInvoke).toHaveBeenCalledWith("save_cursor_settings", { settings: { schemaVersion: 1, autoRefreshMinutes: 5 } }));
   });
 
   it("refreshes on the first click without a confirmation", async () => {
@@ -787,11 +833,12 @@ describe("multi-account workspace", () => {
 
   it("clears pasted JSON immediately after one-step multi-account import", async () => {
     const user = userEvent.setup(); render(<App />); await screen.findByText("one@example.invalid");
-    await user.click(screen.getByRole("button", { name: "粘贴导入" }));
-    const input = screen.getByRole("textbox", { name: "Cockpit Tools JSON" });
+    await user.click(screen.getByRole("button", { name: "添加账号" }));
+    await user.click(screen.getByRole("tab", { name: "Token / JSON" }));
+    const input = screen.getByRole("textbox", { name: "Cursor Access Token 或 Cockpit JSON" });
     const payload = '[{"email":"imported@example.invalid","access_token":"a.b.c"}]';
     await user.click(input); await user.paste(payload); await user.click(screen.getByRole("button", { name: "导入" }));
-    expect(screen.queryByRole("textbox", { name: "Cockpit Tools JSON" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Cursor Access Token 或 Cockpit JSON" })).not.toBeInTheDocument();
     expect(await screen.findByText("imported@example.invalid")).toBeVisible();
     expect(mockedInvoke).toHaveBeenCalledWith("import_cockpit_accounts_json", { payload });
     expect(document.body.textContent).not.toContain("a.b.c");
@@ -802,15 +849,17 @@ describe("multi-account workspace", () => {
       if (command === "list_cursor_accounts") return listedAccounts;
       if (command === "get_update_settings") return { schemaVersion: 1, autoCheck: false, checkIntervalHours: 1, autoInstall: false, remindOnUpdate: true, lastCheckTime: 0, lastRunVersion: "", skippedVersion: "", pendingNotes: null };
       if (command === "get_desktop_settings") return { schemaVersion: 1, closeBehavior: "ask", startMinimized: false, rememberWindow: false, windowX: null, windowY: null, windowWidth: null, windowHeight: null };
+      if (command === "get_cursor_settings") return { schemaVersion: 1, autoRefreshMinutes: 10 };
       if (command === "consume_version_change") return null;
-      if (command === "import_cockpit_accounts_json") throw new Error("invalid account");
+      if (command === "import_cursor_access_token") throw new Error("invalid account");
       throw new Error(`unexpected command ${command}`);
     });
     const user = userEvent.setup();
     render(<App />);
-    await user.click(await screen.findByRole("button", { name: "粘贴导入" }));
-    const dialog = screen.getByRole("dialog", { name: "粘贴 Cockpit JSON" });
-    const input = within(dialog).getByRole("textbox", { name: "Cockpit Tools JSON" });
+    await user.click(await screen.findByRole("button", { name: "添加账号" }));
+    const dialog = screen.getByRole("dialog", { name: "添加 Cursor 账号" });
+    await user.click(within(dialog).getByRole("tab", { name: "Token / JSON" }));
+    const input = within(dialog).getByRole("textbox", { name: "Cursor Access Token 或 Cockpit JSON" });
     await user.type(input, "secret-token-text");
     await user.click(within(dialog).getByRole("button", { name: "导入" }));
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("invalid account");
@@ -889,7 +938,7 @@ describe("multi-account workspace", () => {
     render(<App />);
     await screen.findByText("one@example.invalid");
 
-    await user.click(screen.getByRole("button", { name: /设置$/ }));
+    await user.click(screen.getAllByRole("button", { name: "设置" })[0]);
     await user.selectOptions(screen.getByRole("combobox", { name: "主题" }), "dark");
 
     expect(document.documentElement).toHaveAttribute("data-theme", "dark");
@@ -933,7 +982,7 @@ describe("multi-account workspace", () => {
     const user = userEvent.setup();
     const { container } = render(<App />);
     await screen.findByText("one@example.invalid");
-    expect([...container.querySelectorAll<HTMLButtonElement>(".toolbar-right > button")].map((button) => button.getAttribute("aria-label"))).toEqual(["读取本机账号", "刷新全部", "隐藏邮箱", "粘贴导入", "导出"]);
+    expect([...container.querySelectorAll<HTMLButtonElement>(".toolbar-right > button")].map((button) => button.getAttribute("aria-label"))).toEqual(["添加账号", "刷新全部", "隐藏邮箱", "导出", "设置"]);
     await user.click(screen.getByRole("checkbox", { name: "选择 one@example.invalid" }));
     expect(screen.getByRole("button", { name: "导出 (1)" })).toBeVisible();
   });
