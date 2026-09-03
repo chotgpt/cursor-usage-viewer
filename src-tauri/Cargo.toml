@@ -1,6 +1,6 @@
 [package]
 name = "cursor-usage-viewer"
-version = "0.1.1"
+version = "0.1.2"
 description = "A local, user-triggered Cursor usage viewer"
 authors = ["Cursor Usage Viewer contributors"]
 license = "CC-BY-NC-SA-4.0"

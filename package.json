@@ -1,7 +1,7 @@
 {
   "name": "cursor-usage-viewer",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "license": "CC-BY-NC-SA-4.0",
   "type": "module",
   "scripts": {
