@@ -800,7 +800,7 @@ describe("multi-account workspace", () => {
     expect(await screen.findByText("刷新完成，1 个账号核心额度失败，1 个账号的 Sand 数据未完全更新")).toHaveClass("message-bar", "error");
   });
 
-  it("keeps Cockpit refresh-all independent from a running single-account refresh", async () => {
+  it("does not start refresh-all while a single-account refresh is running", async () => {
     let finishSingle: ((value: CursorAccountView) => void) | undefined;
     mockedInvoke.mockImplementation(async (command) => {
       if (command === "list_cursor_accounts") return listedAccounts;
@@ -817,8 +817,30 @@ describe("multi-account workspace", () => {
     await waitFor(() => expect(mockedInvoke).toHaveBeenCalledWith("refresh_cursor_account", { accountId: "cursor_one" }));
     await user.click(screen.getByRole("button", { name: "刷新全部" }));
 
-    await waitFor(() => expect(mockedInvoke).toHaveBeenCalledWith("refresh_cursor_accounts", { accountIds: ["cursor_one"] }));
+    expect(mockedInvoke).not.toHaveBeenCalledWith("refresh_cursor_accounts", { accountIds: ["cursor_one"] });
     finishSingle?.(account());
+    await waitFor(() => expect(screen.getByRole("button", { name: "刷新全部" })).not.toBeDisabled());
+    await user.click(screen.getByRole("button", { name: "刷新全部" }));
+    await waitFor(() => expect(mockedInvoke).toHaveBeenCalledWith("refresh_cursor_accounts", { accountIds: ["cursor_one"] }));
+  });
+
+  it("shows a spinning icon and disables refresh selected while the batch is running", async () => {
+    let finishBatch: ((value: Array<{ accountId: string; result: CursorAccountView; error: null }>) => void) | undefined;
+    mockedInvoke.mockImplementation(async (command) => {
+      if (command === "list_cursor_accounts") return listedAccounts;
+      if (command === "get_update_settings") return { schemaVersion: 1, autoCheck: false, checkIntervalHours: 1, autoInstall: false, remindOnUpdate: true, lastCheckTime: 0, lastRunVersion: "", skippedVersion: "", pendingNotes: null };
+      if (command === "consume_version_change") return null;
+      if (command === "refresh_cursor_accounts") return new Promise<Array<{ accountId: string; result: CursorAccountView; error: null }>>((resolve) => { finishBatch = resolve; });
+      throw new Error(`unexpected command ${command}`);
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("checkbox", { name: "选择 one@example.invalid" }));
+    const refreshSelected = screen.getByRole("button", { name: "刷新选中" });
+    await user.click(refreshSelected);
+    expect(refreshSelected).toBeDisabled();
+    expect(refreshSelected.querySelector(".loading-spinner")).not.toBeNull();
+    finishBatch?.([{ accountId: "cursor_one", result: account(), error: null }]);
   });
 
   it("dismisses the Cockpit message bar", async () => {
