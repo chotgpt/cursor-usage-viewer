@@ -668,6 +668,7 @@ test("Cursor five-button toolbar matches Cockpit after capability mapping", asyn
 });
 
 test("Cursor account refresh keeps its rotating progress indicator visible while busy", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
   await page.addInitScript((fixtureAccounts) => {
     localStorage.setItem("cursor-theme", "dark");
     (window as typeof window & { __VISUAL_ACCOUNTS__: typeof fixtureAccounts }).__VISUAL_ACCOUNTS__ = [fixtureAccounts[0]];
@@ -692,8 +693,18 @@ test("Cursor account refresh keeps its rotating progress indicator visible while
   const spinner = refresh.locator(".loading-spinner");
   await expect(refresh).toBeDisabled();
   await expect(spinner).toHaveCSS("animation-name", "loading-spin");
+  await expect(spinner).toHaveCSS("width", "20px");
+  await expect(spinner).toHaveCSS("height", "20px");
+  await expect(spinner).toHaveCSS("border-top-width", "2px");
   await page.waitForTimeout(300);
   expect(await refresh.evaluate((element) => getComputedStyle(element).opacity)).toBe("1");
+  await spinner.evaluate((element) => {
+    const animation = element.getAnimations()[0];
+    if (!animation) throw new Error("refresh spinner animation is missing");
+    animation.pause();
+    animation.currentTime = 200;
+  });
+  await expect(refresh).toHaveScreenshot("cursor-account-refresh-busy-dark.png");
 });
 
 test("Cursor privacy mode removes sensitive DOM and accessible names", async ({ page }) => {

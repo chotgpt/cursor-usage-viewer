@@ -21,6 +21,11 @@ input[type="checkbox"] { margin: 0; accent-color: var(--primary, #2e9fff); }
 
 @keyframes loading-spin { to { transform: rotate(360deg); } }
 .loading-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
   transform-box: fill-box;
   transform-origin: center;
   animation: loading-spin .8s linear infinite;
@@ -80,5 +85,5 @@ input[type="checkbox"] { margin: 0; accent-color: var(--primary, #2e9fff); }
 
 
 @media (prefers-reduced-motion: reduce) {
-  * { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
+  *:not(.loading-spinner) { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
 }
