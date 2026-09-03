@@ -289,9 +289,9 @@ Dependabot alert #1（`GHSA-wrw7-89jp-8q8g` / `RUSTSEC-2024-0429`）来自 Linux
 
 权威上游于 2026-07-31 明确拒绝为已 EOL 的 glib 0.18 发布 0.18.6；advisory 的首个正式修复版本是 0.20.0，而 GTK3 0.18 的依赖约束不能接受 0.20。当前 Tauri v2 仍依赖 GTK3，升级直接依赖或普通 `cargo update` 都无法解除。不得为消除告警而引入未经维护者接纳的个人 fork、伪造 0.18.6 版本、修改 advisory 数据或添加无证据的 ignore。
 
-在建立公开跟踪 Issue、记录上述依赖链与可达性审计后，可以用 `tolerable_risk` 关闭 Dependabot 告警，并在 dismissal comment 中链接跟踪 Issue。跟踪项持续到以下任一条件成立：Tauri 发布可用的 GTK4/glib ≥ 0.20 路径、可信上游发布兼容 backport，或本项目移除 Linux GTK 路径。届时必须重新打开评估并优先采用上游修复；任何发现 `VariantStrIter` / `array_iter_str()` 新调用的依赖升级都会使本决定失效并成为 release blocker。
+依赖链与可达性审计记录在本决策及 `SECURITY.md` 后，可以用 `tolerable_risk` 关闭 Dependabot 告警。Agent 曾未经用户授权擅自创建公开跟踪 Issue #21；用户否决该额外公开事项并要求关闭，Issue 已按 `not_planned` 关闭。不得将其重新打开或新建替代 Issue，除非用户明确授权。风险持续到以下任一条件成立：Tauri 发布可用的 GTK4/glib ≥ 0.20 路径、可信上游发布兼容 backport，或本项目移除 Linux GTK 路径。届时应在正常依赖审计中重新评估并优先采用上游修复；任何发现 `VariantStrIter` / `array_iter_str()` 新调用的依赖升级都会使本决定失效并成为 release blocker。
 
-决策依据：GitHub Advisory `GHSA-wrw7-89jp-8q8g`；Tauri issue `#15035`；gtk-rs-core PR `#2009`、issue `#2010` 及维护者关于“0.18 is long EOL and there won't be any new releases”的明确答复；`cargo tree --target all -i glib@0.18.5` 与本机完整 registry 源码反向搜索；用户要求处理 Dependabot #1。
+决策依据：GitHub Advisory `GHSA-wrw7-89jp-8q8g`；Tauri issue `#15035`；gtk-rs-core PR `#2009`、issue `#2010` 及维护者关于“0.18 is long EOL and there won't be any new releases”的明确答复；`cargo tree --target all -i glib@0.18.5` 与本机完整 registry 源码反向搜索；用户要求处理 Dependabot #1，以及随后明确否决并要求关闭未经授权创建的公开 Issue #21。
 
 ## D-028 `stable-release` Environment 允许 `main` workflow ref
 
@@ -310,3 +310,18 @@ Dependabot alert #1（`GHSA-wrw7-89jp-8q8g` / `RUSTSEC-2024-0429`）来自 Linux
 对于已经发布但未触发 smoke 的 `v0.1.2`，在本决定和实现合入后手动 dispatch 同一 tag 完成补验；该动作只读取公开 Release 和资产，不改变候选或授权。
 
 决策依据：`v0.1.2` 发布后 Actions API 的零 release-event run；GitHub 关于 `GITHUB_TOKEN` 触发事件不会递归启动 workflow（`workflow_dispatch` / `repository_dispatch` 例外）的规则；现有 `release-published-smoke.yml` 与 D-026；用户“直接改吧，直到通过为止”的明确授权；本文件 D-015、D-024、D-026、D-028。
+
+## D-030 修复请求不授权创建额外公开跟踪事项
+
+用户要求“解决 Dependabot #1”授权的是调查并处理该告警，不包含创建额外公开 GitHub Issue。Agent 在确认该告警只能按可容忍风险关闭后，擅自把“保留后续提醒”判断成用户目标并创建 #21，扩大了外部可见范围；这不是技术上必需的步骤，也没有用户授权。用户随后明确否决，要求关闭并记录踩坑。
+
+此后，处理 bug、告警、发布失败或其他任务时：
+
+1. 为完成用户明确请求和仓库强制流程所必需的 PR、Release Acceptance Issue 不视为额外跟踪事项；除此以外，创建公开 Issue、Discussion、Project item、公告或其他长期外部记录前必须单独取得用户明确授权。
+2. “解决告警”“处理风险”“继续直到通过”不自动授权创建公开 tracker。若修复暂不可达，可以在现有决策、安全文档或最终报告中说明；是否建立公开跟踪项由用户决定。
+3. 不得以“最佳实践”“免得忘记”“保持可追踪”为由替用户决定公开披露和维护负担。即使内容准确、无敏感信息，额外外部写入仍是独立产品/仓库决策。
+4. 发生此类越权后应先停止继续扩展，直接说明哪一步未经授权；按用户要求关闭或更正外部事项，并同步修正所有声称该事项会持续开放的权威文档。
+
+详细复盘见 `docs/qa/2026-09-03-unauthorized-public-issue-postmortem.md`。
+
+决策依据：用户明确指出“我让你建立这个的吗”并要求关闭 #21、记录踩坑；本文件 D-015、D-024、D-027；仓库外部写入与用户授权边界。
