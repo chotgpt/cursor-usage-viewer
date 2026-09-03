@@ -2,17 +2,19 @@
 
 ## 数据流与用户触发
 
-应用启动时只加载自身应用数据目录中已经落盘的账号索引、账号明细和最后额度快照，不读取 Cursor 数据库、不续期 Token、不访问 Cursor。若用户没有关闭自动更新检查，应用可在界面就绪后独立访问本项目固定 GitHub Release updater endpoint；该请求不携带任何 Cursor 账号凭据。
+应用启动时只加载自身应用数据目录中已经落盘的账号索引、账号明细、最后额度快照和 Cursor 自动刷新设置，不读取 Cursor 数据库，也不自动发起网页登录。若 Cursor 自动刷新间隔大于 0 且已有账号，Tauri 应用进程可在任务到期时使用现有凭据续期并查询额度；窗口隐藏到托盘后仍继续，退出应用即停止。若用户没有关闭自动更新检查，应用可在界面就绪后独立访问本项目固定 GitHub Release updater endpoint；应用更新和额度刷新是两套独立设置，更新请求不携带任何 Cursor 账号凭据。
 
-用户点击“读取本机账号”后，Rust 侧才以只读方式打开当前平台 Cursor 的 `User/globalStorage/state.vscdb`（Windows `%APPDATA%/Cursor`、macOS `~/Library/Application Support/Cursor`、Linux `~/.config/Cursor`），并只查询 `docs/DECISIONS.md` §D-003 列出的五个键。数据库不会被复制或修改。读取结果按账号身份合并进本应用存储；该操作不写回或切换 Cursor。
+用户点击“导入本机当前 Cursor 账号”后，Rust 侧才以只读方式打开当前平台 Cursor 的 `User/globalStorage/state.vscdb`（Windows `%APPDATA%/Cursor`、macOS `~/Library/Application Support/Cursor`、Linux `~/.config/Cursor`），并只查询 `docs/DECISIONS.md` §D-003 列出的五个键。数据库不会被复制或修改。读取结果按账号身份合并进本应用存储；该操作不写回或切换 Cursor。
 
-用户主动粘贴 Cockpit Tools JSON 并提交时，原始 JSON 与 Token 会短暂经过 WebView 和 Tauri IPC；提交后输入框立即清空。Rust 侧按限制解析并持久化账号，不自动扫描 Cockpit Tools 目录，也不提供文件导入。
+用户主动粘贴 Access Token 或 Cockpit Tools JSON 并提交时，敏感输入会短暂经过 WebView 和 Tauri IPC；提交后输入框立即清空。用户也可在本机导入页主动选择单个 `.json` 文件；Rust 只对该精确路径执行扩展名、8 MiB 大小和限长读取，再复用相同的最多 500 账号解析与持久化链路。应用不自动扫描 Cockpit Tools 目录，也不获得通用文件系统权限。
 
-用户点击单账号、选中账号或全部账号刷新后，应用才按 `docs/DECISIONS.md` §D-012、§D-020 访问固定 Cursor 第一方端点。点击即为本次请求授权，不再二次确认。批量刷新逐账号顺序执行；一个账号或可选数据源失败不影响其他账号。
+用户点击单账号、选中账号或全部账号刷新，或启用的自动刷新任务到期后，应用按 `docs/DECISIONS.md` §D-012、§D-020、§D-022 访问固定 Cursor 第一方端点。批量刷新逐账号顺序执行，手动与自动动作共用单并发协调；一个账号或可选数据源失败不影响其他账号，下个周期仍可重试。关闭自动刷新时不会产生后台 Cursor 请求。
+
+网页登录只在用户从添加账号弹层主动开始后运行。应用使用随机 challenge/uuid 打开受限的 Cursor 登录页，并由 Rust 每 2 秒轮询一次受限的 Cursor `auth/poll`，最长 300 秒，用户可取消。Token、PKCE verifier 和完整轮询 URL 不得进入普通 DTO、日志、错误、DOM 持久化或视觉快照；成功后前端只接收脱敏账号视图。
 
 ## 固定网络白名单
 
-生产 Provider 只允许以下 HTTPS 方法与精确路径，禁止重定向、查询参数、片段和任意 URL：
+生产 Provider 只允许以下 HTTPS 方法与精确路径，禁止重定向、片段和任意 URL。除网页登录专用验证器允许的固定参数外，其他端点仍禁止查询参数：
 
 ```text
 POST https://api2.cursor.sh/oauth/token
@@ -22,9 +24,12 @@ GET  https://api2.cursor.sh/auth/stripe_profile
 GET  https://cursor.com/api/usage-summary
 POST https://api2.cursor.sh/aiserver.v1.DashboardService/GetSandUsageStatus
 POST https://cursor.com/api/dashboard/get-sand-access-status
+GET  https://api2.cursor.sh/auth/poll?uuid=<generated>&verifier=<secret>
 ```
 
-OAuth Token 端点只在用户手动刷新且 Access Token 不可解析或五分钟内过期时使用；失败后继续尝试旧 Access Token。`usage-summary` 是 Total、Auto + Composer、API、On-Demand 和计费周期的唯一实时真源。Sand 用量端点使用 Access Token 的 Bearer 认证、Connect 协议版本和 `{}` 请求体；Sand 资格端点使用已经确认的 `Origin: https://cursor.com` 与 WorkOS Cookie。两者都是独立可选数据源。
+系统浏览器只允许打开 `https://cursor.com/loginDeepControl`，并且只允许应用生成的 `challenge`、`uuid` 和固定 `mode=login` 参数。`auth/poll` 只允许应用生成的 `uuid`、`verifier` 参数；二者均使用专用验证器，不接受用户提供的主机、路径或附加参数。
+
+OAuth Token 端点只在手动或已启用的自动刷新中，Access Token 不可解析或五分钟内过期时使用；失败后继续尝试旧 Access Token。`usage-summary` 是 Total、Auto + Composer、API、On-Demand 和计费周期的唯一实时真源。Sand 用量端点使用 Access Token 的 Bearer 认证、Connect 协议版本和 `{}` 请求体；Sand 资格端点使用已经确认的 `Origin: https://cursor.com` 与 WorkOS Cookie。两者都是独立可选数据源。
 
 旧的 `DashboardService/GetCurrentPeriodUsage` 已由 D-012 取消，不得继续加入生产白名单或作为 Free 账号 fallback。
 
@@ -46,7 +51,7 @@ Linux AppImage 使用标准 Tauri updater。deb/rpm 只有在用户明确点击�
 
 应用按用户确认的 Cockpit 兼容模式，在 Tauri `app_data_dir()` 下保存轻量账号索引及每账号独立 JSON 明细。账号明细和 `.bak` 包含明文 Access Token、Refresh Token、账号资料和最后额度快照；不提供 DPAPI 或额外加密层。能够读取当前 Windows 用户应用数据目录的其他进程也可能读取这些凭据。
 
-普通列表、刷新、筛选和删除命令只返回脱敏 DTO，不含 Access Token、Refresh Token、Cookie 或原始认证对象。只有用户主动点击完整 JSON 导出时，包含明文 Token 的内容才可进入导出预览。预览按 Cockpit 行为默认遮罩全部字符串，并允许用户主动显隐、复制或保存；账号页的可折叠说明和导出弹窗文案必须明确内容敏感，但不增加额外确认步骤。
+普通列表、刷新、自动刷新事件、网页登录状态、筛选和删除命令只返回脱敏 DTO，不含 Access Token、Refresh Token、Cookie、verifier 或原始认证对象。只有用户主动点击完整 JSON 导出时，包含明文 Token 的内容才可进入导出预览。预览按 Cockpit 行为默认遮罩全部字符串，并允许用户主动显隐、复制或保存；账号页的可折叠说明和导出弹窗文案必须明确内容敏感，但不增加额外确认步骤。
 
 删除账号时必须删除该账号主 JSON 与账号 `.bak`，并清除可能保留已删除摘要的索引备份；不得让删除后的明文 Token 残留在账号备份文件中。索引仍可由现存账号明细重建。
 
@@ -62,9 +67,9 @@ SQLite 测试使用临时 fixture 数据库；存储测试使用临时目录；C
 
 ## 明确不做
 
-- 切换账号、Token 注入、写回 Cursor 数据库、启动 Cursor 或多开；
-- OAuth 登录、Cursor 额度后台自动刷新、启动时续期或启动时读取本机 Cursor；
-- 文件导入、自动扫描 Cockpit Tools 数据、遥测、崩溃上报、远程日志或云同步；
+- 切换 Cursor 当前账号、把 Token 注入 Cursor、写回 Cursor 数据库、启动 Cursor 或多开；
+- 第三方 OAuth、任意登录/轮询 URL、启动时自动发起网页登录或启动时读取本机 Cursor；
+- 通用文件读取、自动扫描 Cockpit Tools 数据、遥测、崩溃上报、远程日志或云同步；
 - 任意 URL 请求或访问第三方账号服务器。
 
 ## 报告安全问题

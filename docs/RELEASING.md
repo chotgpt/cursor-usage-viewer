@@ -94,7 +94,9 @@ The owner must personally verify:
 - the exact source diff, dependencies, permissions, network boundaries and release notes;
 - UI, accessibility, compact layout, Chinese and English behavior;
 - the committed 1280×800 baseline diff and a fresh screenshot of the exact candidate, including three-column cards and the current account in the first position;
-- import, persistence/restart/recovery, search/filter/page, refresh, Free/non-JSON behavior, export and deletion;
+- all four add-account actions (web login, access token, JSON paste/file and current local account), persistence/restart/recovery, search/filter/page, manual refresh, Free/non-JSON behavior, export and deletion;
+- Cursor auto-refresh off/default/preset/custom behavior, hot-setting changes, manual/automatic single-concurrency, and continued refresh while the window is hidden to the tray; also verify that quitting stops the scheduler and that the tray icon/menu restore the window;
+- web-login success, cancellation, timeout and retry without Token, PKCE verifier or full polling URLs appearing in logs, errors, DOM or screenshots;
 - clean logs/DOM/errors and no accidental real-data access;
 - old-to-new updater behavior on every required Windows, macOS and Linux package/platform, including cancel, retry, signature failure, manual fallback, restart and release notes;
 - all release-blocking issues are closed and remaining limitations are explicitly accepted.
