@@ -272,3 +272,23 @@ PR 门禁的设计目标是留下可审计 diff、阻止直接推送并强制自
 新增工作流策略测试锁定 `verify-candidate` 的此项显式权限，避免以后又退回不可读取 Draft 的顶层只读 token。
 
 决策依据：stable 工作流运行 `33765427459` 的实际失败日志；GitHub Draft release 的 push-access 可见性语义；用户对“`contents: read` → `contents: write`、候选 tag/SHA 和资产不变”的明确批准；本文件 D-015、D-024。
+
+## D-026 stable attestation 按资产逐文件验证
+
+`v0.1.2` 第二次 stable 预检在 D-025 生效后成功下载并通过 human acceptance、identity、37 个资产与 SHA256 门禁，但当前 GitHub CLI 对 `gh attestation verify assets/*` 报 `too many arguments`：shell 把通配符展开为多个路径，而该命令一次只接受一个文件路径。
+
+用户于 2026-09-03 授权 Agent 直接修复确定性发布流程问题直到通过。stable 工作流的两处 attestation 门（环境批准前与批准后）统一改为以 NUL 分隔枚举 `assets` 顶层文件，并通过 `xargs -0 -n1` 对每个资产分别执行 `gh attestation verify`。任一文件验证失败会使 `xargs` 返回非零并阻断 job；空目录也会调用一次缺少路径的命令并失败，不能静默放行。禁止仅验证部分扩展名或因某个资产没有证明而跳过。
+
+工作流策略测试必须同时断言旧的多参数通配符不存在且逐文件验证恰好出现两次；受保护 Environment、候选/Issue/校验和验证和发布步骤均不变。
+
+决策依据：stable 工作流运行 `33767432136` 的实际日志（候选门禁通过后 `too many arguments`）；GitHub CLI `gh attestation verify` 的单路径参数契约；用户“直接改吧，直到通过为止”的明确授权；本文件 D-015、D-024、D-025。
+
+## D-027 Tauri v2 / glib 0.18 告警按可达性审计后登记为可容忍风险
+
+Dependabot alert #1（`GHSA-wrw7-89jp-8q8g` / `RUSTSEC-2024-0429`）来自 Linux 目标的传递依赖链 `tauri 2.11.5 → gtk 0.18.2 / webkit2gtk 2.0.2 → glib 0.18.5`。缺陷只位于 `glib::VariantStrIter` / `array_iter_str()`；对当前完整 Cargo registry 源码进行反向搜索，除 glib 自身实现、文档和测试外没有任何依赖调用该 API，本项目也没有直接依赖或调用 glib。因此当前应用没有已知可达路径，但 release 优化构建一旦调用该 API，缺陷确实可能造成未定义行为或崩溃，不能表述为“误报”或“已修复”。
+
+权威上游于 2026-07-31 明确拒绝为已 EOL 的 glib 0.18 发布 0.18.6；advisory 的首个正式修复版本是 0.20.0，而 GTK3 0.18 的依赖约束不能接受 0.20。当前 Tauri v2 仍依赖 GTK3，升级直接依赖或普通 `cargo update` 都无法解除。不得为消除告警而引入未经维护者接纳的个人 fork、伪造 0.18.6 版本、修改 advisory 数据或添加无证据的 ignore。
+
+在建立公开跟踪 Issue、记录上述依赖链与可达性审计后，可以用 `tolerable_risk` 关闭 Dependabot 告警，并在 dismissal comment 中链接跟踪 Issue。跟踪项持续到以下任一条件成立：Tauri 发布可用的 GTK4/glib ≥ 0.20 路径、可信上游发布兼容 backport，或本项目移除 Linux GTK 路径。届时必须重新打开评估并优先采用上游修复；任何发现 `VariantStrIter` / `array_iter_str()` 新调用的依赖升级都会使本决定失效并成为 release blocker。
+
+决策依据：GitHub Advisory `GHSA-wrw7-89jp-8q8g`；Tauri issue `#15035`；gtk-rs-core PR `#2009`、issue `#2010` 及维护者关于“0.18 is long EOL and there won't be any new releases”的明确答复；`cargo tree --target all -i glib@0.18.5` 与本机完整 registry 源码反向搜索；用户要求处理 Dependabot #1。

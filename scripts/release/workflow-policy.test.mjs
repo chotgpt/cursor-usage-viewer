@@ -32,6 +32,11 @@ test("stable preflight can read the Draft without weakening later gates", () => 
     /verify-candidate:[\s\S]*?permissions:\s*\n\s+contents:\s*write[\s\S]*?checks:\s*read[\s\S]*?issues:\s*read[\s\S]*?attestations:\s*read/,
   );
   assert.match(stable, /publish:[\s\S]*?environment:\s*\n\s+name:\s*stable-release/);
+  assert.doesNotMatch(stable, /gh attestation verify assets\/\*/);
+  assert.equal(
+    (stable.match(/xargs -0 -n1 gh attestation verify --repo/g) ?? []).length,
+    2,
+  );
 });
 
 test("pull requests cannot bypass the deterministic visual regression gate", () => {
