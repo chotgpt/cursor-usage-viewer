@@ -91,6 +91,7 @@ jobs:
       name: stable-release
       url: https://github.com/${{ github.repository }}/releases/tag/${{ inputs.tag }}
     permissions:
+      actions: write
       contents: write
       checks: read
       issues: read
@@ -144,3 +145,8 @@ jobs:
           done
           echo "Immutable release attestation did not verify after publication." >&2
           exit 1
+      - name: Dispatch public release smoke
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: gh workflow run release-published-smoke.yml --ref main -f "tag=$TAG"

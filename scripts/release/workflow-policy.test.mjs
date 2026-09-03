@@ -4,6 +4,10 @@ import fs from "node:fs";
 
 const draft = fs.readFileSync(".github/workflows/release.yml", "utf8");
 const stable = fs.readFileSync(".github/workflows/publish-stable.yml", "utf8");
+const publishedSmoke = fs.readFileSync(
+  ".github/workflows/release-published-smoke.yml",
+  "utf8",
+);
 const ci = fs.readFileSync(".github/workflows/ci.yml", "utf8");
 
 test("the build workflow can only create a Draft", () => {
@@ -37,6 +41,23 @@ test("stable preflight can read the Draft without weakening later gates", () => 
     (stable.match(/xargs -0 -n1 gh attestation verify --repo/g) ?? []).length,
     2,
   );
+});
+
+test("stable publication explicitly dispatches a one-file-at-a-time public smoke", () => {
+  assert.match(
+    stable,
+    /publish:[\s\S]*?permissions:[\s\S]*?actions:\s*write[\s\S]*?contents:\s*write/,
+  );
+  assert.match(
+    stable,
+    /gh workflow run release-published-smoke\.yml --ref main -f "tag=\$TAG"/,
+  );
+  assert.match(publishedSmoke, /workflow_dispatch:[\s\S]*?tag:/);
+  assert.match(
+    publishedSmoke,
+    /xargs -0 -n1 gh attestation verify --repo/,
+  );
+  assert.doesNotMatch(publishedSmoke, /gh attestation verify assets\/\*/);
 });
 
 test("pull requests cannot bypass the deterministic visual regression gate", () => {
