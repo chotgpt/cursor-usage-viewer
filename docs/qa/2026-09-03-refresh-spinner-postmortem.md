@@ -49,7 +49,7 @@
   - 2 秒、24 帧、12 FPS、480×480 放大视图
   - SHA256：`7048F58B139668E391F47CC1ED6D65873B60FD8CC9C97AAD08ACCE266F9DCF795`
 - 四帧对照：`docs/qa/evidence/refresh-spinner-tauri-frames.png`
-  - SHA256：`3C42E89C5F755683DEF1DD40A01FADAB76E555B034E43FF66E37D4D88282A3588`
+  - SHA256：`3C42E89C5F755683DEF1DD40A01FADAB76E555B034E43FF66E37D4D8282A3588`
   - 四个源帧 SHA256 均不同，蓝色高亮段依次位于不同方向。
 - 真实 WebView 计算样式：`aria-busy=true`、按钮 `opacity=1`、尺寸 `20×20px`、`border-top-width=2px`、`animation-name=loading-spin`、`animation-duration=0.8s`。
 - 修复前契约测试先捕获两类失败：忙碌按钮透明度为 `0.42`；reduced-motion 环境中 `animation-name` 为 `none`，图标仍为 14px 且没有 Cockpit 圆环。

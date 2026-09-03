@@ -364,6 +364,7 @@ fn perform_close_action(
                     .set_close_behavior(CloseBehavior::Exit)
                     .map_err(|error| error.to_string())?;
             }
+            state.stop_scheduler();
             app.exit(0);
         }
         _ => return Err("未知关闭动作".to_owned()),
@@ -687,5 +688,21 @@ mod refresh_coordination_tests {
             read_cockpit_accounts_file(&oversized),
             Err(error::AppError::ImportJsonTooLarge)
         ));
+    }
+
+    #[test]
+    fn cockpit_json_file_import_reuses_the_bounded_json_parser() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("accounts.json");
+        fs::write(
+            &path,
+            br#"[{"email":"file@example.invalid","access_token":"e30.eyJzdWIiOiJmaWxlIn0.signature"}]"#,
+        )
+        .unwrap();
+
+        let records = read_cockpit_accounts_file(&path).unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].email.as_deref(), Some("file@example.invalid"));
+        assert_eq!(records[0].source, "cockpit-tools");
     }
 }

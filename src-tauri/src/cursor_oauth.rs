@@ -356,6 +356,24 @@ mod tests {
     }
 
     #[test]
+    fn oauth_credentials_are_redacted_from_the_returned_view() {
+        let access_token = "eyJhbGciOiJub25lIn0.eyJzdWIiOiJ0ZXN0In0.invalid";
+        let refresh_token = "refresh-secret";
+        let view = record_from_credentials(
+            access_token.to_owned(),
+            Some(refresh_token.to_owned()),
+            Some("test".to_owned()),
+            "cursor-oauth",
+        )
+        .view(None);
+        let serialized = serde_json::to_string(&view).unwrap();
+        assert!(view.has_access_token);
+        assert!(view.has_refresh_token);
+        assert!(!serialized.contains(access_token));
+        assert!(!serialized.contains(refresh_token));
+    }
+
+    #[test]
     fn cancellation_invalidates_an_active_login_without_exposing_session_material() {
         let manager = CursorOAuthManager::new().unwrap();
         let login = manager.start().unwrap();
@@ -363,6 +381,22 @@ mod tests {
         assert!(matches!(
             manager.active_material(&login.login_id),
             Err(AppError::OAuthCancelled)
+        ));
+        assert!(matches!(
+            manager.active_material(&login.login_id),
+            Err(AppError::OAuthSessionMissing)
+        ));
+    }
+
+    #[test]
+    fn expired_login_is_cleared_before_polling() {
+        let manager = CursorOAuthManager::new().unwrap();
+        let login = manager.start().unwrap();
+        manager.pending.lock().unwrap().as_mut().unwrap().expires_at = now_seconds() - 1;
+
+        assert!(matches!(
+            manager.active_material(&login.login_id),
+            Err(AppError::OAuthExpired)
         ));
         assert!(matches!(
             manager.active_material(&login.login_id),
