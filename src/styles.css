@@ -18,6 +18,13 @@ input[type="checkbox"] { margin: 0; accent-color: var(--primary, #2e9fff); }
 .primary { color: #fff; border-color: var(--primary); background: var(--gradient-primary); }
 .private { filter: blur(5px); user-select: none; }
 
+@keyframes loading-spin { to { transform: rotate(360deg); } }
+.loading-spinner {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: loading-spin .8s linear infinite;
+}
+
 .modal-overlay {
   position: fixed;
   inset: 0;
