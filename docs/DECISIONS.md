@@ -262,3 +262,13 @@ PR 门禁的设计目标是留下可审计 diff、阻止直接推送并强制自
 5. `stable-release` Environment 继续保留必需审阅者且禁止管理员绕过；Agent 的批准与 owner 亲自点击等价，均以本决策记录的 owner 授权为前提。
 
 决策依据：用户 2026-09-03 的明确授权“用户授权后可以 Agent 执行代为发布，需要用户明确验收通过后并且同意才能代为发布”；本文件 D-013、D-015、D-016；`docs/RELEASING.md`；`.github/ISSUE_TEMPLATE/release-acceptance.yml` 与 `scripts/release/approval.mjs` 的机器可读校验。
+
+## D-025 stable 预检以 `contents: write` 读取 Draft
+
+`v0.1.2` 首次 stable 预检已经通过精确 tag/SHA、required checks 与零 `release-blocker`，随后在 `gh release view v0.1.2` 失败为 `release not found`。同一 Draft 经 owner 凭据确认存在并包含 37 个资产；创建和最终整理 Draft 的 job 使用 `contents: write` 并能正常读取，而 `verify-candidate` 继承顶层 `contents: read`。GitHub Draft release 只向具有 push 访问权限的 token 可见，因此只读 Actions token 无法完成“下载并验证 Draft”这一本来就要求的预检。
+
+用户于 2026-09-03 明确批准最小权限修复：仅为 `publish-stable.yml` 的 `verify-candidate` job 设置 `contents: write`，其余 `checks`、`issues`、`attestations` 仍为 `read`。该 job 不包含上传、编辑或发布命令；扩大 scope 只用于让既有 `gh release view` / `gh release download` 读取 Draft，不能新增任何 Draft 变更。`publish` job 的受保护 Environment、二次完整校验、`--draft=false` 发布步骤、D-015/D-024 人工验收授权及所有机器可读门禁保持不变。
+
+新增工作流策略测试锁定 `verify-candidate` 的此项显式权限，避免以后又退回不可读取 Draft 的顶层只读 token。
+
+决策依据：stable 工作流运行 `33765427459` 的实际失败日志；GitHub Draft release 的 push-access 可见性语义；用户对“`contents: read` → `contents: write`、候选 tag/SHA 和资产不变”的明确批准；本文件 D-015、D-024。
