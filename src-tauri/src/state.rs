@@ -1,11 +1,16 @@
 use std::{
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        Mutex,
+    },
 };
 
 use zeroize::Zeroizing;
 
 use crate::{
+    cursor_oauth::CursorOAuthManager,
+    cursor_settings::{CursorSettings, CursorSettingsStore},
     desktop::{CloseBehavior, DesktopSettings, DesktopSettingsStore},
     error::{AppError, AppResult},
     model::{CursorAccountRecord, CursorAccountView},
@@ -18,22 +23,33 @@ pub struct AppState {
     store: Mutex<AccountStore>,
     current_id: Mutex<Option<String>>,
     pub provider: CursorUsageProvider,
+    pub oauth: CursorOAuthManager,
     desktop: Mutex<DesktopSettingsStore>,
     updates: Mutex<UpdateSettingsStore>,
     last_saved_export: Mutex<Option<PathBuf>>,
+    cursor_settings: Mutex<CursorSettingsStore>,
+    pub refresh_gate: tokio::sync::Mutex<()>,
+    scheduler_generation: AtomicU64,
+    scheduler_stopped: AtomicBool,
 }
 
 impl AppState {
     pub fn new(data_dir: PathBuf) -> AppResult<Self> {
         let desktop = DesktopSettingsStore::new(&data_dir);
         let updates = UpdateSettingsStore::new(&data_dir);
+        let cursor_settings = CursorSettingsStore::new(&data_dir);
         Ok(Self {
             store: Mutex::new(AccountStore::new(data_dir)),
             current_id: Mutex::new(None),
             provider: CursorUsageProvider::new()?,
+            oauth: CursorOAuthManager::new()?,
             desktop: Mutex::new(desktop),
             updates: Mutex::new(updates),
             last_saved_export: Mutex::new(None),
+            cursor_settings: Mutex::new(cursor_settings),
+            refresh_gate: tokio::sync::Mutex::new(()),
+            scheduler_generation: AtomicU64::new(0),
+            scheduler_stopped: AtomicBool::new(false),
         })
     }
 
@@ -278,6 +294,34 @@ impl AppState {
             .map_err(|_| AppError::StateUnavailable)?
             .consume_version_change(current_version)
     }
+
+    pub fn cursor_settings(&self) -> AppResult<CursorSettings> {
+        self.cursor_settings
+            .lock()
+            .map_err(|_| AppError::StateUnavailable)?
+            .load()
+    }
+
+    pub fn save_cursor_settings(&self, settings: &CursorSettings) -> AppResult<CursorSettings> {
+        self.cursor_settings
+            .lock()
+            .map_err(|_| AppError::StateUnavailable)?
+            .save(settings)?;
+        self.scheduler_generation.fetch_add(1, Ordering::SeqCst);
+        Ok(settings.clone())
+    }
+
+    pub fn scheduler_generation(&self) -> u64 {
+        self.scheduler_generation.load(Ordering::SeqCst)
+    }
+
+    pub fn stop_scheduler(&self) {
+        self.scheduler_stopped.store(true, Ordering::SeqCst);
+    }
+
+    pub fn scheduler_stopped(&self) -> bool {
+        self.scheduler_stopped.load(Ordering::SeqCst)
+    }
 }
 
 #[cfg(test)]
@@ -312,5 +356,22 @@ mod tests {
 
         assert_eq!(state.authorize_saved_export(&saved).unwrap(), saved);
         assert!(state.authorize_saved_export(&other).is_err());
+    }
+
+    #[test]
+    fn cursor_refresh_settings_reschedule_and_stop_are_runtime_safe() {
+        let directory = tempdir().unwrap();
+        let state = AppState::new(directory.path().to_path_buf()).unwrap();
+        let initial_generation = state.scheduler_generation();
+        state
+            .save_cursor_settings(&CursorSettings {
+                auto_refresh_minutes: -1,
+                ..CursorSettings::default()
+            })
+            .unwrap();
+        assert_eq!(state.scheduler_generation(), initial_generation + 1);
+        assert!(!state.scheduler_stopped());
+        state.stop_scheduler();
+        assert!(state.scheduler_stopped());
     }
 }

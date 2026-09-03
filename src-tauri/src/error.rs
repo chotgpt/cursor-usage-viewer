@@ -12,8 +12,18 @@ pub enum AppError {
     DatabaseRead(String),
     #[error("当前 Cursor 账号没有可用的 Access Token")]
     AccessTokenMissing,
+    #[error("没有进行中的 Cursor 登录会话")]
+    OAuthSessionMissing,
+    #[error("Cursor 登录已取消")]
+    OAuthCancelled,
+    #[error("Cursor 登录会话已过期")]
+    OAuthExpired,
+    #[error("Cursor 登录响应无效")]
+    OAuthInvalidResponse,
     #[error("敏感状态锁不可用")]
     StateUnavailable,
+    #[error("已有额度刷新正在进行，请稍后重试")]
+    RefreshInProgress,
     #[error("网络 Provider 初始化失败：{0}")]
     ProviderInit(String),
     #[error("请求目标未通过固定白名单")]

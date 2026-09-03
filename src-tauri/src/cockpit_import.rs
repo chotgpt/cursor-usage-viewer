@@ -187,7 +187,7 @@ fn object_value(object: &serde_json::Map<String, Value>, keys: &[&str]) -> Optio
 fn auth_string(raw: Option<&Value>, keys: &[&str]) -> Option<String> {
     string_value(raw?.as_object()?, keys)
 }
-fn jwt_claim(token: &str, claim: &str) -> Option<String> {
+pub(crate) fn jwt_claim(token: &str, claim: &str) -> Option<String> {
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
     let decoded = Zeroizing::new(URL_SAFE_NO_PAD.decode(token.split('.').nth(1)?).ok()?);
     serde_json::from_slice::<Value>(&decoded)
@@ -199,7 +199,7 @@ fn jwt_claim(token: &str, claim: &str) -> Option<String> {
 fn valid_text(value: &str, max: usize) -> bool {
     !value.is_empty() && value.len() <= max && !value.chars().any(char::is_control)
 }
-fn valid_jwt(value: &str) -> bool {
+pub(crate) fn valid_jwt(value: &str) -> bool {
     value.len() <= 32 * 1024
         && value.split('.').count() == 3
         && value.split('.').all(|part| !part.is_empty())
