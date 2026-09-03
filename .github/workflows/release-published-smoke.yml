@@ -1,31 +1,39 @@
 name: Published release smoke
 on:
   release: { types: [published] }
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Exact published v* tag to reverify
+        required: true
+        type: string
 permissions: { contents: read, issues: write, attestations: read }
 jobs:
   verify:
     runs-on: ubuntu-22.04
+    env:
+      TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.tag }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ env.TAG }}
           fetch-depth: 0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: 22 }
       - name: Verify stable metadata
-        env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}", TAG: "${{ github.event.release.tag_name }}" }
+        env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
         run: |
           gh release view "$TAG" --json isDraft,isPrerelease,assets > release.json
           mkdir assets
           gh release download "$TAG" --dir assets
           node scripts/release/verify-published-release.mjs --release-json release.json --assets-dir assets --repo "$GITHUB_REPOSITORY" --tag "$TAG"
           gh release verify "$TAG" --repo "$GITHUB_REPOSITORY"
-          gh attestation verify assets/* --repo "$GITHUB_REPOSITORY"
+          find assets -maxdepth 1 -type f -print0 |
+            xargs -0 -n1 gh attestation verify --repo "$GITHUB_REPOSITORY"
       - name: Open a release blocker when public verification fails
         if: failure()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.event.release.tag_name }}
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           TITLE="[Release blocker] Post-publish verification failed for $TAG"

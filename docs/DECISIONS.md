@@ -300,3 +300,13 @@ Dependabot alert #1（`GHSA-wrw7-89jp-8q8g` / `RUSTSEC-2024-0429`）来自 Linux
 `stable-release` 的自定义 deployment branch policies 保留现有 `v*` tag，并新增且只新增 `main` branch。required reviewer 仍为 owner，`prevent_self_review=false`、`can_admins_bypass=false` 均不变；其他 branch/tag 不允许部署。允许 `main` 只让手动 dispatch 进入既有 protected Environment，不替代精确 tag/SHA、Release Acceptance Issue、required checks、零 blocker、Draft 资产/SHA256/attestation 的批准前后双重校验。
 
 决策依据：stable 工作流运行 `33770452607` 的成功 `verify-candidate` job、失败 publish check annotation 与 Environment API 当前配置；`.github/workflows/publish-stable.yml` 的 `workflow_dispatch` + 输入 tag 结构；用户“直接改吧，直到通过为止”的明确授权；本文件 D-015、D-024–D-026。
+
+## D-029 stable 发布后显式调度公开 smoke
+
+`v0.1.2` stable 工作流成功发布后没有产生 `release: published` smoke run。原因是发布命令使用仓库 `GITHUB_TOKEN`，GitHub 防递归规则不会为该 token 产生的普通 release 事件启动新 workflow；现有 `release-published-smoke.yml` 只有 `release` trigger，因此它在官方发布路径中不可达。同时其 attestation 命令仍使用 D-026 已证明不兼容当前 GitHub CLI 的多路径通配符。
+
+`release-published-smoke.yml` 保留 `release: published` 以覆盖人工或外部 token 发布，新增必填精确 tag 的 `workflow_dispatch`；两种入口统一解析同一个 `TAG`，并采用 D-026 的逐文件 attestation 验证。`publish-stable.yml` 的受保护 `publish` job 在 immutable release 验证成功后显式以 `main` ref、精确输入 tag 调度该 smoke；为此只给该 job 新增 `actions: write`，不授予其他 job。smoke 失败继续自动创建 `release-blocker`，不得回写不可变 Release，必须新 patch 修复。
+
+对于已经发布但未触发 smoke 的 `v0.1.2`，在本决定和实现合入后手动 dispatch 同一 tag 完成补验；该动作只读取公开 Release 和资产，不改变候选或授权。
+
+决策依据：`v0.1.2` 发布后 Actions API 的零 release-event run；GitHub 关于 `GITHUB_TOKEN` 触发事件不会递归启动 workflow（`workflow_dispatch` / `repository_dispatch` 例外）的规则；现有 `release-published-smoke.yml` 与 D-026；用户“直接改吧，直到通过为止”的明确授权；本文件 D-015、D-024、D-026、D-028。
