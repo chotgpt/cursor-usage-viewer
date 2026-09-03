@@ -22,6 +22,8 @@ const PROFILE: &str = "https://api2.cursor.sh/auth/stripe_profile";
 const USAGE: &str = "https://cursor.com/api/usage-summary";
 const SAND_USAGE: &str = "https://api2.cursor.sh/aiserver.v1.DashboardService/GetSandUsageStatus";
 const SAND_ACCESS: &str = "https://cursor.com/api/dashboard/get-sand-access-status";
+const AGGREGATED_USAGE: &str =
+    "https://api2.cursor.sh/aiserver.v1.DashboardService/GetAggregatedUsageEvents";
 const CLIENT_ID: &str = "KbZUR41cY7W6zRSdpSUJ7I7mLYBKOCmB";
 const BROWSER_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)";
 const COCKPIT_USAGE_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)";
@@ -36,6 +38,7 @@ struct Endpoints {
     usage: Url,
     sand_usage: Url,
     sand_access: Url,
+    aggregated_usage: Url,
 }
 
 pub struct CursorUsageProvider {
@@ -59,6 +62,17 @@ impl CursorUsageProvider {
             endpoints: Endpoints::production()?,
             enforce_allowlist: true,
         })
+    }
+
+    /// Targets a local mock server instead of the production allowlist, for
+    /// command-level tests that need a real `AppState` without network access.
+    #[cfg(test)]
+    pub fn for_mock_server(base: &str) -> Self {
+        Self {
+            client: Client::builder().redirect(Policy::none()).build().unwrap(),
+            endpoints: Endpoints::mock(base),
+            enforce_allowlist: false,
+        }
     }
 
     pub async fn refresh_account(
@@ -152,10 +166,12 @@ impl CursorUsageProvider {
             }
         }
         let mut sand = account.sand.take().unwrap_or_default();
+        let mut period_start_for_spend = None;
         match self
-            .post_sand_usage(
+            .post_connect_json(
                 &self.endpoints.sand_usage,
                 &account.access_token,
+                Value::Object(Default::default()),
                 "Sand 用量（sand-usage）",
             )
             .await
@@ -164,8 +180,55 @@ impl CursorUsageProvider {
                 map_sand_usage(&mut sand, &raw);
                 sand.usage_updated_at = Some(now);
                 sand.usage_error = None;
+                period_start_for_spend = sand.current_period_start.clone();
             }
             Err(error) => sand.usage_error = Some(error.to_string()),
+        }
+        let spend_stage = "周期消费（aggregated-usage）";
+        match period_start_for_spend {
+            Some(period_start) => match parse_rfc3339_millis(&period_start) {
+                Some(start_ms) => {
+                    let body = serde_json::json!({
+                        "startDate": start_ms.to_string(),
+                        "endDate": (now * 1000).to_string(),
+                    });
+                    match self
+                        .post_connect_json(
+                            &self.endpoints.aggregated_usage,
+                            &account.access_token,
+                            body,
+                            spend_stage,
+                        )
+                        .await
+                    {
+                        Ok(raw) => match sum_aggregated_total_cents(&raw) {
+                            Some(cents) => {
+                                sand.period_spend_cents = Some(cents);
+                                sand.period_spend_updated_at = Some(now);
+                                sand.period_spend_error = None;
+                            }
+                            None => {
+                                sand.period_spend_error =
+                                    Some(format!("{spend_stage}：响应缺少 aggregations 数组"))
+                            }
+                        },
+                        Err(error) => sand.period_spend_error = Some(error.to_string()),
+                    }
+                }
+                None => {
+                    sand.period_spend_error = Some(format!("{spend_stage}：无法解析 Sand 周期起点"))
+                }
+            },
+            None if sand.usage_error.is_some() => {
+                sand.period_spend_error = Some(format!("{spend_stage}：Sand 用量未更新，未查询"))
+            }
+            None => {
+                // The usage stage succeeded without a Bot period, so there is no
+                // window to sum: this is "unknown", not a failure to warn about.
+                sand.period_spend_cents = None;
+                sand.period_spend_updated_at = None;
+                sand.period_spend_error = None;
+            }
         }
         let access_stage = "Sand 资格（sand-access）";
         match build_session_cookie(&account.access_token) {
@@ -201,6 +264,7 @@ impl CursorUsageProvider {
             (Method::GET, &self.endpoints.usage),
             (Method::POST, &self.endpoints.sand_usage),
             (Method::POST, &self.endpoints.sand_access),
+            (Method::POST, &self.endpoints.aggregated_usage),
         ] {
             validate_production_endpoint(&method, url)?;
         }
@@ -305,10 +369,13 @@ impl CursorUsageProvider {
             .await
             .map_err(|error| error.at_endpoint(stage))
     }
-    async fn post_sand_usage(
+    /// Connect-protocol POST shared by the Bearer `DashboardService` calls
+    /// (`GetSandUsageStatus`, `GetAggregatedUsageEvents`).
+    async fn post_connect_json(
         &self,
         url: &Url,
         token: &str,
+        body: Value,
         stage: &'static str,
     ) -> AppResult<Value> {
         let auth = sensitive_header(&format!("Bearer {token}"))
@@ -320,7 +387,7 @@ impl CursorUsageProvider {
             .header(CONTENT_TYPE, "application/json")
             .header("Connect-Protocol-Version", "1")
             .header(USER_AGENT, BROWSER_USER_AGENT)
-            .body("{}")
+            .body(body.to_string())
             .send()
             .await
             .map_err(|error| request_error(error).at_endpoint(stage))?;
@@ -363,6 +430,7 @@ impl Endpoints {
             usage: parse(USAGE)?,
             sand_usage: parse(SAND_USAGE)?,
             sand_access: parse(SAND_ACCESS)?,
+            aggregated_usage: parse(AGGREGATED_USAGE)?,
         })
     }
     #[cfg(test)]
@@ -376,6 +444,7 @@ impl Endpoints {
             usage: url("/usage-summary"),
             sand_usage: url("/sand-usage"),
             sand_access: url("/sand-access"),
+            aggregated_usage: url("/aggregated-usage"),
         }
     }
 }
@@ -448,6 +517,7 @@ pub fn validate_production_endpoint(method: &Method, url: &Url) -> AppResult<()>
             "/oauth/token"
                 | "/aiserver.v1.AuthService/GetUserMeta"
                 | "/aiserver.v1.DashboardService/GetSandUsageStatus"
+                | "/aiserver.v1.DashboardService/GetAggregatedUsageEvents"
         ) | (
             "GET",
             Some("api2.cursor.sh"),
@@ -820,6 +890,76 @@ fn map_sand_usage(s: &mut SandSnapshot, v: &Value) {
         .and_then(Value::as_str)
         .map(ToOwned::to_owned)
 }
+/// Sums `aggregations[].totalCents`, mirroring the reference script. Returns
+/// `None` when the array is missing so an unknown response is never shown as $0.
+fn sum_aggregated_total_cents(v: &Value) -> Option<f64> {
+    let aggregations = v.get("aggregations")?.as_array()?;
+    Some(
+        aggregations
+            .iter()
+            .filter_map(|item| flexible_number(item, &["totalCents", "total_cents"]))
+            .sum(),
+    )
+}
+
+/// Minimal RFC 3339 parser for `currentPeriodStart` values such as
+/// `2026-08-26T17:22:03.913Z` or `2026-08-26T17:22:03+08:00`; returns epoch ms.
+fn parse_rfc3339_millis(value: &str) -> Option<i64> {
+    let value = value.trim();
+    let (date, rest) = value.split_once(['T', 't', ' '])?;
+    let mut date_parts = date.split('-');
+    let year: i64 = date_parts.next()?.parse().ok()?;
+    let month: u32 = date_parts.next()?.parse().ok()?;
+    let day: u32 = date_parts.next()?.parse().ok()?;
+    if date_parts.next().is_some() || !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return None;
+    }
+    let offset_index = rest
+        .find(['Z', 'z', '+'])
+        .or_else(|| rest.rfind('-').filter(|index| *index >= 8))?;
+    let (time, offset) = rest.split_at(offset_index);
+    let offset_seconds: i64 = match offset {
+        "Z" | "z" => 0,
+        _ => {
+            let sign = if offset.starts_with('-') { -1 } else { 1 };
+            let (hours, minutes) = offset[1..].split_once(':')?;
+            let hours: i64 = hours.parse().ok()?;
+            let minutes: i64 = minutes.parse().ok()?;
+            sign * (hours * 3600 + minutes * 60)
+        }
+    };
+    let (clock, fraction) = time.split_once('.').unwrap_or((time, ""));
+    let mut clock_parts = clock.split(':');
+    let hour: i64 = clock_parts.next()?.parse().ok()?;
+    let minute: i64 = clock_parts.next()?.parse().ok()?;
+    let second: i64 = clock_parts.next()?.parse().ok()?;
+    if clock_parts.next().is_some() || hour > 23 || minute > 59 || second > 60 {
+        return None;
+    }
+    let millis: i64 = if fraction.is_empty() {
+        0
+    } else {
+        let digits: String = fraction.chars().take(3).collect();
+        if !digits.chars().all(|character| character.is_ascii_digit()) {
+            return None;
+        }
+        format!("{digits:0<3}").parse().ok()?
+    };
+    let days = days_from_civil(year, month, day);
+    Some(((days * 86_400 + hour * 3600 + minute * 60 + second - offset_seconds) * 1000) + millis)
+}
+
+/// Howard Hinnant's `days_from_civil`: proleptic Gregorian date → days since 1970-01-01.
+fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
+    let year = if month <= 2 { year - 1 } else { year };
+    let era = year.div_euclid(400);
+    let year_of_era = year.rem_euclid(400);
+    let month_index = (i64::from(month) + 9) % 12;
+    let day_of_year = (153 * month_index + 2) / 5 + i64::from(day) - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    era * 146_097 + day_of_era - 719_468
+}
+
 fn map_sand_access(s: &mut SandSnapshot, v: &Value) {
     s.access_state = v
         .get("state")
@@ -873,9 +1013,19 @@ mod tests {
             (Method::GET, USAGE),
             (Method::POST, SAND_USAGE),
             (Method::POST, SAND_ACCESS),
+            (Method::POST, AGGREGATED_USAGE),
         ] {
             assert!(validate_production_endpoint(&m, &Url::parse(u).unwrap()).is_ok())
         }
+        assert!(
+            validate_production_endpoint(&Method::GET, &Url::parse(AGGREGATED_USAGE).unwrap())
+                .is_err()
+        );
+        assert!(validate_production_endpoint(
+            &Method::POST,
+            &Url::parse(&format!("{AGGREGATED_USAGE}?startDate=0")).unwrap()
+        )
+        .is_err());
         assert!(validate_production_endpoint(
             &Method::POST,
             &Url::parse(
@@ -943,6 +1093,206 @@ mod tests {
         assert_eq!(sand.usage_percent, Some(64.5));
         assert_eq!(sand.grok_plan_label.as_deref(), Some("Grok Bot Plan"));
         assert_eq!(sand.usage_error, None);
+    }
+    #[tokio::test]
+    async fn period_spend_follows_the_reference_script_contract() {
+        let server = MockServer::start().await;
+        mount(&server, "/meta", "POST", serde_json::json!({})).await;
+        mount(&server, "/full-profile", "GET", serde_json::json!({})).await;
+        mount(
+            &server,
+            "/usage-summary",
+            "GET",
+            serde_json::json!({"individualUsage":{"plan":{"totalPercentUsed":12.5}}}),
+        )
+        .await;
+        mount(
+            &server,
+            "/sand-usage",
+            "POST",
+            serde_json::json!({
+                "usagePercent": 64.5,
+                "currentPeriodStart": "2026-08-26T17:22:03.913Z"
+            }),
+        )
+        .await;
+        mount(
+            &server,
+            "/sand-access",
+            "POST",
+            serde_json::json!({"state":"SAND_ACCESS_STATE_GRANTED"}),
+        )
+        .await;
+        Mock::given(method("POST"))
+            .and(path("/aggregated-usage"))
+            .and(header(
+                "authorization",
+                format!("Bearer {}", token()).as_str(),
+            ))
+            .and(header("content-type", "application/json"))
+            .and(header("connect-protocol-version", "1"))
+            .and(header("user-agent", BROWSER_USER_AGENT))
+            .and(wiremock::matchers::body_partial_json(
+                serde_json::json!({"startDate": "1787764923913"}),
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "aggregations": [
+                    {"modelIntent": "claude", "totalCents": 1234.5},
+                    {"modelIntent": "gpt", "totalCents": "0.5"},
+                    {"modelIntent": "no-cost"}
+                ]
+            })))
+            .mount(&server)
+            .await;
+        let provider = CursorUsageProvider::for_mock_server(&server.uri());
+
+        let updated = provider.refresh_account(record()).await.unwrap();
+        let sand = updated.sand.unwrap();
+
+        assert_eq!(sand.period_spend_cents, Some(1235.0));
+        assert!(sand.period_spend_updated_at.is_some());
+        assert_eq!(sand.period_spend_error, None);
+        let requests = server.received_requests().await.unwrap();
+        let spend_request = requests
+            .iter()
+            .find(|request| request.url.path() == "/aggregated-usage")
+            .unwrap();
+        let body: Value = serde_json::from_slice(&spend_request.body).unwrap();
+        let end_ms: i64 = body["endDate"].as_str().unwrap().parse().unwrap();
+        assert!(
+            end_ms >= 1_787_764_923_913,
+            "endDate must be a millisecond string of now"
+        );
+        assert_eq!(end_ms % 1000, 0, "endDate is derived from whole seconds");
+    }
+    #[tokio::test]
+    async fn period_spend_failure_is_isolated_and_skipped_without_a_period_start() {
+        let server = MockServer::start().await;
+        mount(&server, "/meta", "POST", serde_json::json!({})).await;
+        mount(&server, "/full-profile", "GET", serde_json::json!({})).await;
+        mount(
+            &server,
+            "/usage-summary",
+            "GET",
+            serde_json::json!({"individualUsage":{"plan":{"totalPercentUsed":12.5}}}),
+        )
+        .await;
+        mount(
+            &server,
+            "/sand-access",
+            "POST",
+            serde_json::json!({"state":"SAND_ACCESS_STATE_GRANTED"}),
+        )
+        .await;
+        let access_token = token();
+        Mock::given(method("POST"))
+            .and(path("/aggregated-usage"))
+            .respond_with(
+                ResponseTemplate::new(500)
+                    .set_body_string(format!("must stay private: {access_token}")),
+            )
+            .mount(&server)
+            .await;
+        let provider = CursorUsageProvider::for_mock_server(&server.uri());
+
+        // Stage failure keeps the previous spend and the other Sand results.
+        mount(
+            &server,
+            "/sand-usage",
+            "POST",
+            serde_json::json!({"usagePercent": 64.5, "currentPeriodStart": "2026-08-26T17:22:03Z"}),
+        )
+        .await;
+        let mut previous = record();
+        previous.sand = Some(SandSnapshot {
+            period_spend_cents: Some(42.0),
+            period_spend_updated_at: Some(1),
+            ..SandSnapshot::default()
+        });
+        let updated = provider.refresh_account(previous).await.unwrap();
+        let sand = updated.sand.unwrap();
+        let error = sand.period_spend_error.clone().unwrap();
+        assert_eq!(sand.usage_percent, Some(64.5));
+        assert_eq!(sand.access_granted, Some(true));
+        assert_eq!(sand.period_spend_cents, Some(42.0));
+        assert_eq!(sand.period_spend_updated_at, Some(1));
+        assert!(error.contains("周期消费（aggregated-usage）"));
+        assert!(error.contains("HTTP 500"));
+        assert!(!error.contains(&access_token));
+        assert!(!error.contains("must stay private"));
+        assert_eq!(updated.last_error, None);
+
+        // Without a period start the spend endpoint is never called.
+        server.reset().await;
+        mount(&server, "/meta", "POST", serde_json::json!({})).await;
+        mount(&server, "/full-profile", "GET", serde_json::json!({})).await;
+        mount(
+            &server,
+            "/usage-summary",
+            "GET",
+            serde_json::json!({"individualUsage":{"plan":{"totalPercentUsed":12.5}}}),
+        )
+        .await;
+        mount(
+            &server,
+            "/sand-usage",
+            "POST",
+            serde_json::json!({"usagePercent": 64.5}),
+        )
+        .await;
+        mount(
+            &server,
+            "/sand-access",
+            "POST",
+            serde_json::json!({"state":"SAND_ACCESS_STATE_GRANTED"}),
+        )
+        .await;
+        let mut stale = record();
+        stale.sand = Some(SandSnapshot {
+            period_spend_cents: Some(42.0),
+            period_spend_updated_at: Some(1),
+            ..SandSnapshot::default()
+        });
+        let updated = provider.refresh_account(stale).await.unwrap();
+        let sand = updated.sand.unwrap();
+        assert_eq!(sand.period_spend_cents, None);
+        assert_eq!(sand.period_spend_updated_at, None);
+        assert_eq!(sand.period_spend_error, None);
+        let requests = server.received_requests().await.unwrap();
+        assert!(requests
+            .iter()
+            .all(|request| request.url.path() != "/aggregated-usage"));
+    }
+    #[test]
+    fn rfc3339_period_start_parses_to_epoch_milliseconds() {
+        assert_eq!(
+            parse_rfc3339_millis("2026-08-26T17:22:03.913Z"),
+            Some(1_787_764_923_913)
+        );
+        assert_eq!(
+            parse_rfc3339_millis("2026-08-26T17:22:03Z"),
+            Some(1_787_764_923_000)
+        );
+        assert_eq!(
+            parse_rfc3339_millis("2026-08-27T01:22:03.9+08:00"),
+            Some(1_787_764_923_900)
+        );
+        assert_eq!(parse_rfc3339_millis("1970-01-01T00:00:00Z"), Some(0));
+        assert_eq!(parse_rfc3339_millis("2026-13-01T00:00:00Z"), None);
+        assert_eq!(parse_rfc3339_millis("not a date"), None);
+        assert_eq!(parse_rfc3339_millis(""), None);
+    }
+    #[test]
+    fn aggregated_total_cents_stay_unknown_without_an_aggregations_array() {
+        assert_eq!(sum_aggregated_total_cents(&serde_json::json!({})), None);
+        assert_eq!(
+            sum_aggregated_total_cents(&serde_json::json!({"aggregations": "nope"})),
+            None
+        );
+        assert_eq!(
+            sum_aggregated_total_cents(&serde_json::json!({"aggregations": []})),
+            Some(0.0)
+        );
     }
     #[tokio::test]
     async fn sand_access_403_keeps_the_cookie_contract_and_safe_stage() {
@@ -1431,9 +1781,10 @@ mod tests {
                 .unwrap_err()
                 .to_string(),
             provider
-                .post_sand_usage(
+                .post_connect_json(
                     &provider.endpoints.sand_usage,
                     "invalid\r\nheader",
+                    Value::Object(Default::default()),
                     "Sand 用量（sand-usage）",
                 )
                 .await

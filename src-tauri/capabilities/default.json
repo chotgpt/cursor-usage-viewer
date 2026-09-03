@@ -6,6 +6,7 @@
   "permissions": [
     "core:default",
     "dialog:allow-save",
+    "dialog:allow-open",
     "autostart:allow-enable",
     "autostart:allow-disable",
     "autostart:allow-is-enabled",
@@ -16,7 +17,8 @@
       "allow": [
         { "url": "https://github.com/chotgpt/cursor-usage-viewer" },
         { "url": "https://github.com/chotgpt/cursor-usage-viewer/releases" },
-        { "url": "https://github.com/chotgpt/cursor-usage-viewer/releases/*" }
+        { "url": "https://github.com/chotgpt/cursor-usage-viewer/releases/*" },
+        { "url": "https://cursor.com/loginDeepControl?challenge=*&uuid=*&mode=login" }
       ]
     }
   ]

@@ -50,6 +50,14 @@ pub struct SandSnapshot {
     pub access_updated_at: Option<i64>,
     pub usage_error: Option<String>,
     pub access_error: Option<String>,
+    /// Sum of `aggregations[].totalCents` from `GetAggregatedUsageEvents` for the
+    /// Bot period (`current_period_start` → now). Covers every model, not just Bot.
+    #[serde(default)]
+    pub period_spend_cents: Option<f64>,
+    #[serde(default)]
+    pub period_spend_updated_at: Option<i64>,
+    #[serde(default)]
+    pub period_spend_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

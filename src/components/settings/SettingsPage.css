@@ -21,6 +21,8 @@
 .settings-about-product { display: grid; padding: 28px; gap: 8px; }.settings-about-product strong { font-size: 20px; }.settings-about-product span, .settings-about-product p { color: var(--text-secondary); font-size: 12px; }.settings-about-product p { margin: 0; }
 .settings-about-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .settings-inline-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 24px; border-bottom: 1px solid color-mix(in srgb,var(--danger) 28%,var(--border-light)); color: var(--danger); background: color-mix(in srgb,var(--danger) 7%,var(--bg-secondary)); font-size: 12px; }
+.cursor-refresh-control { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+.cursor-refresh-control .cursor-refresh-custom { width: 88px; height: 38px; padding: 0 10px; border: 1px solid var(--border); border-radius: 10px; color: var(--text-primary); background: var(--bg-tertiary); font-size: 13px; }
 .release-history-modal { width: min(680px, calc(100vw - 48px)); max-height: min(680px, calc(100vh - 48px)); }
 .release-history-modal .modal-body { overflow-y: auto; }
 .release-history-list { display: flex; flex-direction: column; gap: 14px; }

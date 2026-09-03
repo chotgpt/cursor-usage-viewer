@@ -6,12 +6,12 @@ An unofficial, non-commercial source-available desktop workspace for viewing and
 
 ## Features / 功能
 
-- High-density cards for Total, Auto + Composer, API, On-Demand and Grok/Sand.
-- Cockpit-compatible JSON paste import, local persistence, filtering, paging and full sensitive export.
-- Cursor access happens only after the user clicks read or refresh; no background quota refresh.
+- High-density cards for Total, Auto + Composer, API, On-Demand and Grok/Sand, including the all-model dollar spend of the current Bot period.
+- A single add-account flow for Cursor web login, access-token or Cockpit JSON import, JSON file selection and read-only import of the current local Cursor account.
+- Optional Cursor quota auto-refresh (off, 2/5/10/15 minutes or a custom interval), continuing while the window is hidden to the system tray.
 - Signed stable updates with a Draft-first three-platform release process.
-- 高密度额度卡、多账号粘贴导入、存盘恢复、筛选分页和完整敏感导出。
-- 仅在用户点击后读取本机 Cursor 或查询额度；不后台刷新额度。
+- 高密度额度卡（含 Bot 周期内全模型消费金额）、统一添加账号入口、存盘恢复、筛选分页和完整敏感导出。
+- Cursor 额度自动刷新可关闭或设置为 2/5/10/15 分钟及自定义间隔；窗口隐藏到托盘后仍继续运行。
 
 ## Screenshots / 截图
 
@@ -28,6 +28,8 @@ Light / 浅色：
 Account details and `.bak` files contain plaintext Access and Refresh Tokens in the application data directory. Full export also contains plaintext credentials. There is no telemetry, cloud sync or remote logging. Cursor requests are restricted to the exact first-party endpoints documented in [SECURITY.md](SECURITY.md). App update traffic is separate and never carries Cursor credentials.
 
 账号明细和 `.bak` 会在应用数据目录明文保存 Access / Refresh Token；完整导出同样包含明文凭据。项目不含遥测、云同步或远程日志。详细端点和数据流见 [SECURITY.md](SECURITY.md)。
+
+On startup, the application neither reads Cursor's database nor starts web login automatically. Background quota traffic occurs only when the user-enabled Cursor refresh interval is greater than zero; app-update checks remain a separate setting. 应用不会在启动时读取 Cursor 数据库或自动发起网页登录；只有启用 Cursor 刷新间隔后才会产生后台额度请求，应用更新检查与其相互独立。
 
 ## Development / 开发
 

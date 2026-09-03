@@ -1,11 +1,14 @@
 mod cockpit_import;
 mod cursor_db;
+mod cursor_oauth;
+mod cursor_settings;
 mod desktop;
 mod error;
 #[allow(dead_code)]
 mod linux_updater;
 mod model;
 mod provider;
+mod scheduler;
 mod state;
 mod storage;
 mod updater;
@@ -13,6 +16,7 @@ mod updater;
 use tauri::{Emitter, Manager, State};
 use zeroize::Zeroizing;
 
+use cursor_settings::CursorSettings;
 use desktop::{CloseBehavior, DesktopSettings};
 use model::{BatchAccountResult, CursorAccountView};
 use state::AppState;
@@ -42,6 +46,21 @@ fn load_current_cursor_account(state: State<'_, AppState>) -> Result<CursorAccou
 }
 
 #[tauri::command]
+fn get_cursor_settings(state: State<'_, AppState>) -> Result<CursorSettings, String> {
+    state.cursor_settings().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn save_cursor_settings(
+    settings: CursorSettings,
+    state: State<'_, AppState>,
+) -> Result<CursorSettings, String> {
+    state
+        .save_cursor_settings(&settings)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 fn import_cockpit_accounts_json(
     payload: String,
     state: State<'_, AppState>,
@@ -50,6 +69,111 @@ fn import_cockpit_accounts_json(
     let records = cockpit_import::parse_cockpit_accounts_json(payload.as_str())
         .map_err(|error| error.to_string())?;
     state.import(records).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn import_cursor_access_token(
+    access_token: String,
+    state: State<'_, AppState>,
+) -> Result<CursorAccountView, String> {
+    let access_token = Zeroizing::new(access_token);
+    let record = cursor_oauth::record_from_access_token(access_token.to_string())
+        .map_err(|error| error.to_string())?;
+    state
+        .upsert(record, false)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn import_cockpit_accounts_file(
+    path: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<CursorAccountView>, String> {
+    let records = read_cockpit_accounts_file(std::path::Path::new(&path))
+        .map_err(|error| error.to_string())?;
+    state.import(records).map_err(|error| error.to_string())
+}
+
+fn read_cockpit_accounts_file(
+    path: &std::path::Path,
+) -> error::AppResult<Vec<model::CursorAccountRecord>> {
+    use std::io::Read;
+
+    if path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+        != Some("json")
+    {
+        return Err(error::AppError::ImportJsonInvalid);
+    }
+    let metadata = std::fs::metadata(path)
+        .map_err(|error| error::AppError::Storage(format!("读取 JSON 文件失败：{error}")))?;
+    if !metadata.is_file() {
+        return Err(error::AppError::ImportJsonInvalid);
+    }
+    if metadata.len() > 8 * 1024 * 1024 {
+        return Err(error::AppError::ImportJsonTooLarge);
+    }
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)
+        .map_err(|error| error::AppError::Storage(format!("读取 JSON 文件失败：{error}")))?
+        .take((8 * 1024 * 1024 + 1) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|error| error::AppError::Storage(format!("读取 JSON 文件失败：{error}")))?;
+    if bytes.len() > 8 * 1024 * 1024 {
+        return Err(error::AppError::ImportJsonTooLarge);
+    }
+    let payload =
+        Zeroizing::new(String::from_utf8(bytes).map_err(|_| error::AppError::ImportJsonInvalid)?);
+    cockpit_import::parse_cockpit_accounts_json(payload.as_str())
+}
+
+#[tauri::command]
+fn start_cursor_login(
+    state: State<'_, AppState>,
+) -> Result<cursor_oauth::CursorLoginStart, String> {
+    state.oauth.start().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn complete_cursor_login(
+    login_id: String,
+    state: State<'_, AppState>,
+) -> Result<CursorAccountView, String> {
+    let record = state
+        .oauth
+        .complete(&login_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    store_login_and_refresh_once(&state, record)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+/// Mirrors Cockpit's `cursor_oauth_login_complete`: persist first, then refresh
+/// the new account once. A busy refresh gate or a failed refresh must not turn a
+/// successful login into an error, so those paths return the saved view.
+async fn store_login_and_refresh_once(
+    state: &AppState,
+    record: model::CursorAccountRecord,
+) -> error::AppResult<CursorAccountView> {
+    let saved = state.upsert(record, false)?;
+    let Ok(_guard) = state.refresh_gate.try_lock() else {
+        return Ok(saved);
+    };
+    Ok(refresh_one_unlocked(state, saved.id.clone())
+        .await
+        .unwrap_or(saved))
+}
+
+#[tauri::command]
+fn cancel_cursor_login(login_id: Option<String>, state: State<'_, AppState>) -> Result<(), String> {
+    state
+        .oauth
+        .cancel(login_id.as_deref())
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -63,12 +187,13 @@ fn select_cursor_account(
 #[tauri::command]
 async fn query_cursor_usage(state: State<'_, AppState>) -> Result<CursorAccountView, String> {
     let account = state.active_record().map_err(|error| error.to_string())?;
-    let refreshed = state
-        .provider
-        .refresh_account(account)
+    let _guard = state
+        .refresh_gate
+        .try_lock()
+        .map_err(|_| error::AppError::RefreshInProgress.to_string())?;
+    refresh_one_unlocked(&state, account.id)
         .await
-        .map_err(|error| error.to_string())?;
-    state.persist(refreshed).map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -76,15 +201,13 @@ async fn refresh_cursor_account(
     account_id: String,
     state: State<'_, AppState>,
 ) -> Result<CursorAccountView, String> {
-    let account = state
-        .record(&account_id)
-        .map_err(|error| error.to_string())?;
-    let refreshed = state
-        .provider
-        .refresh_account(account)
+    let _guard = state
+        .refresh_gate
+        .try_lock()
+        .map_err(|_| error::AppError::RefreshInProgress.to_string())?;
+    refresh_one_unlocked(&state, account_id)
         .await
-        .map_err(|error| error.to_string())?;
-    state.persist(refreshed).map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -92,27 +215,26 @@ async fn refresh_cursor_accounts(
     account_ids: Vec<String>,
     state: State<'_, AppState>,
 ) -> Result<Vec<BatchAccountResult<CursorAccountView>>, String> {
+    try_refresh_accounts_shared(&state, account_ids)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+async fn try_refresh_accounts_shared(
+    state: &AppState,
+    account_ids: Vec<String>,
+) -> error::AppResult<Vec<BatchAccountResult<CursorAccountView>>> {
+    let _guard = state
+        .refresh_gate
+        .try_lock()
+        .map_err(|_| error::AppError::RefreshInProgress)?;
     let mut results = Vec::with_capacity(account_ids.len());
     for account_id in account_ids {
-        let outcome = match state.record(&account_id) {
-            Ok(account) => match state.provider.refresh_account(account).await {
-                Ok(refreshed) => match state.persist(refreshed) {
-                    Ok(view) => BatchAccountResult {
-                        account_id,
-                        result: Some(view),
-                        error: None,
-                    },
-                    Err(error) => BatchAccountResult {
-                        account_id,
-                        result: None,
-                        error: Some(error.to_string()),
-                    },
-                },
-                Err(error) => BatchAccountResult {
-                    account_id,
-                    result: None,
-                    error: Some(error.to_string()),
-                },
+        let outcome = match refresh_one_unlocked(state, account_id.clone()).await {
+            Ok(view) => BatchAccountResult {
+                account_id,
+                result: Some(view),
+                error: None,
             },
             Err(error) => BatchAccountResult {
                 account_id,
@@ -123,6 +245,15 @@ async fn refresh_cursor_accounts(
         results.push(outcome);
     }
     Ok(results)
+}
+
+async fn refresh_one_unlocked(
+    state: &AppState,
+    account_id: String,
+) -> error::AppResult<CursorAccountView> {
+    let account = state.record(&account_id)?;
+    let refreshed = state.provider.refresh_account(account).await?;
+    state.persist(refreshed)
 }
 
 #[tauri::command]
@@ -249,6 +380,7 @@ fn perform_close_action(
                     .set_close_behavior(CloseBehavior::Exit)
                     .map_err(|error| error.to_string())?;
             }
+            state.stop_scheduler();
             app.exit(0);
         }
         _ => return Err("未知关闭动作".to_owned()),
@@ -397,6 +529,7 @@ pub fn run() {
                 .map_err(|error| std::io::Error::other(error.to_string()))?;
             let desktop_settings = state.desktop_settings();
             app.manage(state);
+            scheduler::start(app.handle().clone());
             if let Some(window) = app.get_webview_window("main") {
                 if desktop_settings.remember_window {
                     if let (Some(x), Some(y)) =
@@ -437,6 +570,11 @@ pub fn run() {
             let quit = tauri::menu::MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
             let menu = tauri::menu::Menu::with_items(app, &[&show, &update, &quit])?;
             tauri::tray::TrayIconBuilder::new()
+                .icon(
+                    app.default_window_icon()
+                        .expect("应用必须配置默认窗口图标")
+                        .clone(),
+                )
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
@@ -453,7 +591,10 @@ pub fn run() {
                     "update" => {
                         let _ = app.emit("manual-update-requested", ());
                     }
-                    "quit" => app.exit(0),
+                    "quit" => {
+                        app.state::<AppState>().stop_scheduler();
+                        app.exit(0);
+                    }
                     _ => {}
                 })
                 .build(app)?;
@@ -483,14 +624,21 @@ pub fn run() {
                         api.prevent_close();
                         let _ = window.hide();
                     }
-                    CloseBehavior::Exit => {}
+                    CloseBehavior::Exit => state.stop_scheduler(),
                 }
             }
         })
         .invoke_handler(tauri::generate_handler![
             list_cursor_accounts,
             load_current_cursor_account,
+            get_cursor_settings,
+            save_cursor_settings,
             import_cockpit_accounts_json,
+            import_cursor_access_token,
+            import_cockpit_accounts_file,
+            start_cursor_login,
+            complete_cursor_login,
+            cancel_cursor_login,
             select_cursor_account,
             query_cursor_usage,
             refresh_cursor_account,
@@ -518,4 +666,147 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Cursor Usage Viewer");
+}
+
+#[cfg(test)]
+mod refresh_coordination_tests {
+    use std::fs;
+
+    use tempfile::tempdir;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn overlapping_manual_or_automatic_refresh_is_skipped_before_network_access() {
+        let directory = tempdir().unwrap();
+        let state = AppState::new(directory.path().to_path_buf()).unwrap();
+        let _active_refresh = state.refresh_gate.lock().await;
+        assert!(matches!(
+            try_refresh_accounts_shared(&state, vec!["missing".to_owned()]).await,
+            Err(error::AppError::RefreshInProgress)
+        ));
+    }
+
+    fn login_record() -> model::CursorAccountRecord {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+
+        let payload = URL_SAFE_NO_PAD.encode(
+            serde_json::json!({"sub":"auth0|user_login","exp":4_102_444_800i64}).to_string(),
+        );
+        model::CursorAccountRecord::fake_for_test(
+            "cursor_login",
+            "login@example.invalid",
+            &format!("e30.{payload}.signature"),
+        )
+    }
+
+    async fn mount_refresh_chain(server: &wiremock::MockServer) {
+        use wiremock::{matchers, Mock, ResponseTemplate};
+        for (method, path, body) in [
+            ("POST", "/meta", serde_json::json!({})),
+            (
+                "GET",
+                "/full-profile",
+                serde_json::json!({"membershipType":"pro"}),
+            ),
+            (
+                "GET",
+                "/usage-summary",
+                serde_json::json!({"individualUsage":{"plan":{"totalPercentUsed":33.0}}}),
+            ),
+            (
+                "POST",
+                "/sand-usage",
+                serde_json::json!({"usagePercent": 64.5}),
+            ),
+            (
+                "POST",
+                "/sand-access",
+                serde_json::json!({"state":"SAND_ACCESS_STATE_GRANTED"}),
+            ),
+        ] {
+            Mock::given(matchers::method(method))
+                .and(matchers::path(path))
+                .respond_with(ResponseTemplate::new(200).set_body_json(body))
+                .mount(server)
+                .await;
+        }
+    }
+
+    #[tokio::test]
+    async fn web_login_persists_then_refreshes_the_new_account_once() {
+        let server = wiremock::MockServer::start().await;
+        mount_refresh_chain(&server).await;
+        let directory = tempdir().unwrap();
+        let mut state = AppState::new(directory.path().to_path_buf()).unwrap();
+        state.provider = provider::CursorUsageProvider::for_mock_server(&server.uri());
+
+        let view = store_login_and_refresh_once(&state, login_record())
+            .await
+            .unwrap();
+
+        assert_eq!(view.id, "cursor_login");
+        assert_eq!(view.core_usage.unwrap().total.percent_used, Some(33.0));
+        assert_eq!(view.sand.unwrap().usage_percent, Some(64.5));
+        let persisted = state.record("cursor_login").unwrap();
+        assert_eq!(persisted.sand.unwrap().usage_percent, Some(64.5));
+        let usage_calls = server
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .filter(|request| request.url.path() == "/usage-summary")
+            .count();
+        assert_eq!(usage_calls, 1);
+    }
+
+    #[tokio::test]
+    async fn web_login_still_succeeds_when_a_refresh_is_already_running() {
+        let directory = tempdir().unwrap();
+        let state = AppState::new(directory.path().to_path_buf()).unwrap();
+        let _active_refresh = state.refresh_gate.lock().await;
+
+        let view = store_login_and_refresh_once(&state, login_record())
+            .await
+            .unwrap();
+
+        assert_eq!(view.id, "cursor_login");
+        assert!(view.core_usage.is_none());
+        assert_eq!(state.list().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn cockpit_json_file_import_checks_extension_and_size_before_parsing() {
+        let directory = tempdir().unwrap();
+        let invalid_extension = directory.path().join("accounts.txt");
+        fs::write(&invalid_extension, b"[]").unwrap();
+        assert!(matches!(
+            read_cockpit_accounts_file(&invalid_extension),
+            Err(error::AppError::ImportJsonInvalid)
+        ));
+
+        let oversized = directory.path().join("accounts.json");
+        let file = fs::File::create(&oversized).unwrap();
+        file.set_len(8 * 1024 * 1024 + 1).unwrap();
+        assert!(matches!(
+            read_cockpit_accounts_file(&oversized),
+            Err(error::AppError::ImportJsonTooLarge)
+        ));
+    }
+
+    #[test]
+    fn cockpit_json_file_import_reuses_the_bounded_json_parser() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("accounts.json");
+        fs::write(
+            &path,
+            br#"[{"email":"file@example.invalid","access_token":"e30.eyJzdWIiOiJmaWxlIn0.signature"}]"#,
+        )
+        .unwrap();
+
+        let records = read_cockpit_accounts_file(&path).unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].email.as_deref(), Some("file@example.invalid"));
+        assert_eq!(records[0].source, "cockpit-tools");
+    }
 }

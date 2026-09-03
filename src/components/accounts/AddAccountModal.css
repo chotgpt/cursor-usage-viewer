@@ -1,0 +1,14 @@
+.add-account-modal { width: min(620px, calc(100vw - 48px)); }
+.add-account-tabs { display: grid; grid-template-columns: repeat(3, 1fr); padding: 0 24px; border-bottom: 1px solid var(--border-light); background: var(--bg-surface); }
+.add-account-tab { display: flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 12px; border: 0; border-bottom: 2px solid transparent; color: var(--text-secondary); background: transparent; font-size: 13px; font-weight: 600; gap: 7px; }
+.add-account-tab:hover { color: var(--text-primary); background: var(--bg-hover); }
+.add-account-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+.add-account-panel { display: flex; flex-direction: column; gap: 16px; }
+.add-account-panel .btn-full { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 42px; gap: 8px; }
+.add-account-panel .token-input { min-height: 170px; }
+.add-account-divider { display: flex; align-items: center; color: var(--text-tertiary); font-size: 12px; gap: 12px; }
+.add-account-divider::before, .add-account-divider::after { flex: 1; height: 1px; background: var(--border-light); content: ""; }
+.add-account-error { display: flex; align-items: flex-start; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--danger) 30%, var(--border)); border-radius: var(--radius-sm); color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, var(--bg-secondary)); font-size: 12px; line-height: 1.5; gap: 8px; }
+.add-account-error svg { flex: 0 0 auto; margin-top: 1px; }
+.add-account-storage-note { padding-top: 14px; border-top: 1px solid var(--border-light); font-size: 12px !important; }
+@media (max-width: 620px) { .add-account-tabs { padding: 0 12px; } .add-account-tab { padding: 0 6px; font-size: 12px; } }

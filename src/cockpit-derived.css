@@ -343,12 +343,12 @@ body {
 .sand-quota-ring-unit { position: relative; top: -1px; margin-left: 1px; font-size: 12px; font-weight: 650; }
 .sand-status-details { display: flex; min-width: 0; flex-direction: column; gap: 0; }
 .sand-detail-row { display: grid; grid-template-columns: max-content minmax(0, 1fr) max-content; align-items: center; min-width: 0; min-height: 32px; column-gap: 4px; }
-.sand-reset-row { display: grid; grid-template-columns: max-content max-content minmax(0, 1fr); align-items: center; min-width: 0; min-height: 33px; padding-top: 1px; border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent); column-gap: 4px; }
+.sand-reset-row, .sand-spend-row { display: grid; grid-template-columns: max-content max-content minmax(0, 1fr); align-items: center; min-width: 0; min-height: 33px; padding-top: 1px; border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent); column-gap: 4px; }
 .sand-detail-label { color: color-mix(in srgb, var(--text-secondary) 92%, transparent); font-size: 12px; font-weight: 500; line-height: 1; white-space: nowrap; }
 .sand-detail-value { overflow: hidden; min-width: 0; color: var(--text-primary); text-overflow: ellipsis; white-space: nowrap; }
 .sand-plan-row .sand-detail-value { font-size: 14px; font-weight: 680; letter-spacing: -.12px; }
-.sand-reset-row .sand-detail-value { font-family: var(--font-sans); font-size: 13px; font-variant-numeric: tabular-nums; font-weight: 620; letter-spacing: -.1px; }
-.sand-reset-relative { overflow: hidden; color: var(--text-secondary); font-size: 10.5px; font-weight: 450; letter-spacing: -.15px; line-height: 14px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.sand-reset-row .sand-detail-value, .sand-spend-row .sand-detail-value { font-family: var(--font-sans); font-size: 13px; font-variant-numeric: tabular-nums; font-weight: 620; letter-spacing: -.1px; }
+.sand-reset-relative, .sand-spend-scope { overflow: hidden; color: var(--text-secondary); font-size: 10.5px; font-weight: 450; letter-spacing: -.15px; line-height: 14px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .sand-access-text { overflow: hidden; font-size: 12px; font-weight: 600; line-height: 1; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .sand-access-text.granted { color: color-mix(in srgb, var(--success) 72%, var(--text-secondary)); }
 .sand-access-text.blocked { color: var(--danger); }
@@ -429,8 +429,9 @@ body {
 .table-sand-primary { display: flex; align-items: center; gap: 5px; min-width: 0; }
 .table-sand-primary strong { overflow: hidden; min-width: 0; color: var(--text-primary); font-size: 10px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .table-sand-status .sand-access-badge { min-height: 18px; padding-inline: 5px; font-size: 10px; }
-.table-sand-plan, .table-sand-reason, .table-sand-freshness { overflow: hidden; color: var(--text-secondary); font-size: 10px; line-height: 1.35; overflow-wrap: anywhere; }
-.table-sand-plan, .table-sand-reason { display: block; }
+.table-sand-plan, .table-sand-spend, .table-sand-reason, .table-sand-freshness { overflow: hidden; color: var(--text-secondary); font-size: 10px; line-height: 1.35; overflow-wrap: anywhere; }
+.table-sand-plan, .table-sand-spend, .table-sand-reason { display: block; }
+.table-sand-spend { font-variant-numeric: tabular-nums; }
 .table-sand-freshness > span { display: block; }
 .table-updated { color: var(--text-secondary) !important; font-size: 11px !important; line-height: 1.35; }
 .table-updated-date, .table-updated-time { display: block; white-space: nowrap; }

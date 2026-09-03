@@ -1,6 +1,6 @@
 # Cursor 额度查看器决策记录
 
-更新时间：2026-08-31
+更新时间：2026-09-03
 
 ## D-001 产品范围与技术栈
 
@@ -222,3 +222,29 @@ PR 门禁的设计目标是留下可审计 diff、阻止直接推送并强制自
 百分比环只表达用量，不替代资格状态文字；`100% + 资格可访问` 仍必须同时成立并清楚可辨。未来重置时间继续精确到分钟，倒计时大于等于一天时显示“约 X天 X小时”，小于一天时显示“约 X时 X分钟”；过期时只显示“待刷新”，缺失或无效时显示“未知”。列表模式可保留更适合表格密度的紧凑文本表达，但套餐、用量、资格、受限原因和重置状态的语义必须与网格卡片一致。
 
 决策依据：用户先要求“也用百分比显示额度”“去掉左上角的 Grok / Sand，改成套餐信息”，随后选择百分比优先的 B 方案，并最终明确选择第二张 B2 草图开始开发；本决定细化 D-018、D-019，不改变字段真源、未知值不猜测和错误分阶段归属。
+
+## D-022 Cursor 定时刷新与统一“+”添加流程
+
+用户于 2026-09-03 最终确认把 Cockpit Tools 固定提交 `a0508ae815e104e931dae515389e680840008367` 的 Cursor 定时刷新和账号添加行为定向移植到本项目，并确认窗口隐藏到系统托盘后继续刷新。本决定覆盖 D-011、D-012、D-014、D-017 及其他旧文档中“仅手动刷新”“不提供 OAuth”“不提供文件导入”或“托盘不得刷新 Cursor 额度”的相反范围；启动时不读取 Cursor 数据库、不自动发起网页登录，以及 Cursor-only、受限端点、脱敏与只读数据库边界继续有效。
+
+1. 新增独立的 Cursor 自动刷新设置，默认 **10 分钟**，可关闭或选择 2、5、10、15 分钟及至少为 2 的自定义正整数；持久化值 `-1` 表示关闭。它与应用更新检查是两套独立设置。应用进程启动后只有在间隔大于 0 且已有账号时才允许调度 Cursor 请求；窗口隐藏到托盘不停止调度，应用退出必须停止。
+2. 调度器位于 Rust/Tauri 应用进程，应用级唯一，采用 5 秒 tick、单并发、稳定账号 key 错峰、运行中任务保护和设置热更新语义。手动与自动刷新调用同一后端批量刷新链路并共用互斥协调；失败允许下一周期重试。自动刷新事件只能携带脱敏账号视图，不能包含 Token、Cookie、原始响应或完整请求 URL。
+3. 账号页使用单一 `+` 添加入口，工具栏顺序固定为 `+`、刷新全部、隐私、导出、设置。添加弹层提供：网页登录、单个 Access Token / Cockpit JSON、本机当前账号 / JSON 文件四种实际动作；JSON 粘贴和文件导入继续使用既有 8 MiB、500 账号、字段长度与 JWT 形态限制及账号合并持久化链路。
+4. 网页登录严格使用固定 Cursor device flow：浏览器只可打开 `https://cursor.com/loginDeepControl`，后端只可 `GET https://api2.cursor.sh/auth/poll`，轮询间隔 2 秒、最多 300 秒且可取消。登录页 URL 只允许受控的 `challenge`、`uuid`、`mode=login` 参数；轮询只允许受控的 `uuid`、`verifier` 参数。两者均禁止重定向、任意 URL 和第三方 OAuth 服务。
+5. 网页登录取得的 Token 和 PKCE verifier 只存在于 Rust 敏感数据流并进入现有 `AppState::upsert` / `AccountStore`；前端仅接收状态及脱敏账号视图。Token、verifier 和完整轮询 URL 不得进入普通 DTO、日志、错误、DOM 持久化或视觉快照。用户主动提交单 Access Token 是为本应用新增账号，不代表允许把 Token 注入 Cursor、切换 Cursor 当前账号或写回 Cursor 数据库。
+6. 本机导入仍须由用户主动点击，只读打开默认 Cursor `state.vscdb` 并只读取 D-003 白名单 key；只导入当前账号，不扫描其他账号、不复制或写回数据库。JSON 文件选择只开放单个 `.json`，Rust 对该精确路径执行类型、大小和限长读取，不引入通用文件系统权限。
+7. 生产网络白名单新增上述精确登录页和 `auth/poll`；额度端点及 OAuth Token 续期仍遵循 D-012、D-020。网页登录的受控 query 使用专用验证器，不得放宽其他生产端点禁止查询参数和片段的规则。应用托盘图标显式复用 Tauri 默认窗口图标，不引入上游品牌资源。
+
+决策依据：用户对自动刷新默认值、选项、托盘生命周期、网页登录固定流程、本机导入范围、设置位置及托盘图标的最终封板；Cockpit Tools 固定提交的 `src/hooks/useAutoRefresh.ts`、`src/utils/autoRefreshScheduler.ts`、`src/pages/CursorAccountsPage.tsx` 与 `src-tauri/src/modules/cursor_oauth.rs`；本轮最终实施计划 `docs/plans/2026-09-03-cockpit-auto-refresh-and-add-flow.md`。
+
+## D-023 Sand 卡片增加“本周期消费（全模型）”与网页登录后即时刷新
+
+用户于 2026-09-03 批准在 Sand 面板显示 Bot 周期内的美元消费，并选定三张真实渲染草图中的方案 A：百分比环与 D-021 语义完全不变，在右侧信息区按现有“套餐”“重置”两行相同的字体、字重、分隔线与右侧弱化文字语法新增第三行“消费 — `$x` — 全模型”。方案 B（环内小字换成金额）和方案 C（环以金额为主）因环内空间只够 5 个汉字宽度、大金额会碰到描边，且会让一个环同时表达两个不同口径的数而被否决。
+
+1. 生产白名单新增精确端点 `POST https://api2.cursor.sh/aiserver.v1.DashboardService/GetAggregatedUsageEvents`。请求契约照抄 `Cusor-bot-sand/sand_api.py::fetch_period_spend`：与 D-020 第 1 项相同的 `Authorization: Bearer <accessToken>`、`Content-Type: application/json`、`Connect-Protocol-Version: 1` 和普通浏览器 User-Agent；请求体为 `{"startDate":"<毫秒>","endDate":"<毫秒>"}`，`startDate` 取同一次刷新中 `GetSandUsageStatus` 返回的 `currentPeriodStart`，`endDate` 取当前时间。结果为响应 `aggregations[].totalCents` 求和；`aggregations` 缺失或不是数组时保持未知，不臆造为 0。
+2. 该端点是一次手动或自动刷新中的第三个可选 Sand 子阶段，只在 Sand 用量阶段成功且返回周期起点后调用。用量阶段失败或周期起点无法解析时记录脱敏的阶段错误并保留上次成功值，不发起请求；用量阶段成功但没有返回周期起点（账号没有 Bot 周期）时视为“未知”而不是失败：清除旧的周期消费、不记录错误、不发起请求，界面显示“—”且不触发部分失败告警。它的失败不得影响核心四组额度、Sand 用量百分比或 Sand 资格；反之亦然。仍禁止重定向、查询参数、片段和任意目标；错误只含阶段名和结构化证据，不含 Token、请求体或响应正文。
+3. 界面文案必须保留“全模型”限定：该金额是账号在 Bot 周期（`currentPeriodStart` 至今）内全部模型的用量事件合计，接口无法拆出纯 Bot 消费，也不等于 Total 卡片按计费周期显示的已用金额。周期消费未取得时显示“—”；仅该阶段失败或陈旧时行首标签改为“上次消费”，与 D-019/D-021 的部分失败语义一致。列表模式在 Sand 列以紧凑文本表达同一含义。
+4. 网页登录对齐 Cockpit 固定提交 `commands/cursor.rs::cursor_oauth_login_complete`：账号持久化成功后立即对该账号执行一次现有共享刷新链路；刷新与批量/自动刷新共用互斥协调，互斥被占用或刷新失败时直接返回已保存的脱敏视图，不阻断登录成功。本机导入、粘贴 Token 和 JSON 文件导入与 Cockpit 一致，只落盘不刷新。
+5. 百分比显示规则：保留一位小数后结果为 `100.0` 的值显示为 `100%`，不再显示 `100.0%`；其余保留一位小数。该规则同时适用于环内数值与各额度百分比，保持全页一致。
+
+决策依据：用户对三张渲染草图的选择、对新增端点与“只对齐 Cockpit 网页登录后刷新”的明确批准，以及“100.0% 不要小数点”的补充要求；`Cusor-bot-sand/sand_api.py` 的 `fetch_period_spend` 契约与其“全模型”注释；Cockpit Tools 固定提交 `a0508ae815e104e931dae515389e680840008367` 的 `src-tauri/src/commands/cursor.rs`、`src/hooks/useProviderAccountsPage.ts`；本文件 D-019、D-020、D-021、D-022。

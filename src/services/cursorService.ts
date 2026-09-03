@@ -1,9 +1,18 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { BatchAccountResult, CursorAccountView } from "../types";
+export type CursorSettings = { schemaVersion: number; autoRefreshMinutes: number };
+export type CursorLoginSession = { loginId: string; verificationUri: string; expiresIn: number; intervalSeconds: number };
 export const isTauri = () => "__TAURI_INTERNALS__" in window;
 export async function listAccounts() { return isTauri() ? invoke<CursorAccountView[]>("list_cursor_accounts") : []; }
 export async function importAccounts(payload: string) { return invoke<CursorAccountView[]>("import_cockpit_accounts_json", { payload }); }
+export async function importAccessToken(accessToken: string) { return invoke<CursorAccountView>("import_cursor_access_token", { accessToken }); }
+export async function importAccountsFile(path: string) { return invoke<CursorAccountView[]>("import_cockpit_accounts_file", { path }); }
 export async function readLocalAccount() { return invoke<CursorAccountView>("load_current_cursor_account"); }
+export async function startLogin() { return invoke<CursorLoginSession>("start_cursor_login"); }
+export async function completeLogin(loginId: string) { return invoke<CursorAccountView>("complete_cursor_login", { loginId }); }
+export async function cancelLogin(loginId?: string) { return invoke<void>("cancel_cursor_login", { loginId }); }
+export async function getSettings() { return invoke<CursorSettings>("get_cursor_settings"); }
+export async function saveSettings(settings: CursorSettings) { return invoke<CursorSettings>("save_cursor_settings", { settings }); }
 export async function refreshAccount(accountId: string) { return invoke<CursorAccountView>("refresh_cursor_account", { accountId }); }
 export async function refreshAccounts(accountIds: string[]) { return invoke<BatchAccountResult[]>("refresh_cursor_accounts", { accountIds }); }
 export async function deleteAccount(accountId: string) { return invoke<void>("delete_cursor_account", { accountId }); }

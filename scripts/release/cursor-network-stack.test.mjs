@@ -11,7 +11,7 @@ test("Cursor requests retain Cockpit-compatible native TLS defaults", async () =
   assert.doesNotMatch(declaration, /rustls-tls/);
 });
 
-test("About links stay inside the fixed project opener allowlist", async () => {
+test("About links and Cursor login stay inside the fixed project opener allowlist", async () => {
   const capability = JSON.parse(await readFile(new URL("../../src-tauri/capabilities/default.json", import.meta.url), "utf8"));
   const opener = capability.permissions.find((permission) => permission?.identifier === "opener:allow-open-url");
   const urls = opener?.allow?.map((entry) => entry.url) ?? [];
@@ -20,5 +20,6 @@ test("About links stay inside the fixed project opener allowlist", async () => {
     "https://github.com/chotgpt/cursor-usage-viewer",
     "https://github.com/chotgpt/cursor-usage-viewer/releases",
     "https://github.com/chotgpt/cursor-usage-viewer/releases/*",
+    "https://cursor.com/loginDeepControl?challenge=*&uuid=*&mode=login",
   ]);
 });
