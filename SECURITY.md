@@ -66,6 +66,10 @@ Cursor 请求头必须标记为敏感。应用不记录 Token、Cookie、邮箱�
 
 SQLite 测试使用临时 fixture 数据库；存储测试使用临时目录；Cursor 网络测试只用 mock transport/server 和假 JWT。updater 测试使用隔离清单、测试 keypair 和假安装包，必须覆盖篡改后签名失败。测试、构建与视觉验证不得读取本机真实 Cursor 数据库、应用数据账号、剪贴板或真实 Token，不得发送真实 Cursor 请求，也不得控制用户现有窗口、鼠标或进程。
 
+## 已知传递依赖风险
+
+Linux 的 Tauri v2 / GTK3 栈传递依赖 `glib 0.18.5`，受 `GHSA-wrw7-89jp-8q8g`（`RUSTSEC-2024-0429`）影响。缺陷位于 `glib::VariantStrIter` / `array_iter_str()`；当前项目及其消费方没有调用该 API，因此没有已知可达路径。它仍是真实的上游未定义行为风险，不是误报：glib 0.18 已 EOL 且维护者不会发布 backport，正式修复版 0.20 又不兼容当前 GTK3 依赖链。Dependabot 告警按 `docs/DECISIONS.md` §D-027 记录为可容忍风险并由公开 Issue 跟踪；Tauri 提供 GTK4/glib ≥ 0.20 路径、可信兼容 backport 出现，或依赖图新增该 API 调用时必须重新评估。
+
 ## 明确不做
 
 - 切换 Cursor 当前账号、把 Token 注入 Cursor、写回 Cursor 数据库、启动 Cursor 或多开；
