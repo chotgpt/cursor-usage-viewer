@@ -28,6 +28,14 @@ permissions:
 jobs:
   verify-candidate:
     runs-on: ubuntu-22.04
+    # GitHub only exposes Draft releases to tokens with push access. This job
+    # never mutates the Draft; write scope is required so `gh release view`
+    # and `gh release download` can read it before the protected publish job.
+    permissions:
+      contents: write
+      checks: read
+      issues: read
+      attestations: read
     outputs:
       tag_sha: ${{ steps.identity.outputs.tag_sha }}
     steps:

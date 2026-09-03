@@ -26,6 +26,14 @@ test("stable publication revalidates after environment approval", () => {
   assert.equal((stable.match(/gh attestation verify/g) ?? []).length, 2);
 });
 
+test("stable preflight can read the Draft without weakening later gates", () => {
+  assert.match(
+    stable,
+    /verify-candidate:[\s\S]*?permissions:\s*\n\s+contents:\s*write[\s\S]*?checks:\s*read[\s\S]*?issues:\s*read[\s\S]*?attestations:\s*read/,
+  );
+  assert.match(stable, /publish:[\s\S]*?environment:\s*\n\s+name:\s*stable-release/);
+});
+
 test("pull requests cannot bypass the deterministic visual regression gate", () => {
   assert.match(ci, /npx playwright install chromium/);
   assert.match(ci, /npm run test:visual/);
