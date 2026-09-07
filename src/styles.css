@@ -74,6 +74,7 @@ input[type="checkbox"] { margin: 0; accent-color: var(--primary, #2e9fff); }
 .ghcp-add-modal > .modal-header h2 { font-size: 18px; }
 .ghcp-add-modal .modal-body { display: flex; overflow-x: hidden; overflow-y: auto; flex-direction: column; min-height: 0; padding: 20px 24px 24px; gap: 16px; }
 .export-json-actions { display: flex; justify-content: flex-end; margin: 12px 0; gap: 8px; }
+.modal p.export-json-notice { margin: 0 0 12px; color: var(--danger); font-size: 12px; text-align: right; }
 .export-saved-path { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; margin: 10px 0; padding: 10px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); }
 .export-saved-path code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .export-saved-actions { display: flex; align-items: center; gap: 8px; }

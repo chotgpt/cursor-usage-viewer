@@ -1,6 +1,6 @@
 # Cursor 额度查看器决策记录
 
-更新时间：2026-09-03
+更新时间：2026-09-07
 
 ## D-001 产品范围与技术栈
 
@@ -325,3 +325,13 @@ Dependabot alert #1（`GHSA-wrw7-89jp-8q8g` / `RUSTSEC-2024-0429`）来自 Linux
 详细复盘见 `docs/qa/2026-09-03-unauthorized-public-issue-postmortem.md`。
 
 决策依据：用户明确指出“我让你建立这个的吗”并要求关闭 #21、记录踩坑；本文件 D-015、D-024、D-027；仓库外部写入与用户授权边界。
+
+## D-031 完整账号 JSON 弹窗增加“复制网页 Token”
+
+用户于 2026-09-07 要求在“完整账号 JSON”导出弹窗的操作栏中，于“复制完整 JSON”与“保存 JSON”之间新增“复制网页 Token / Copy web token”按钮，把当前导出范围内每个账号的凭据转换为 Cursor 网页登录 Token 写入剪贴板。
+
+1. 转换规则与后端 `provider.rs::build_session_cookie` 生成 `WorkosCursorSessionToken` Cookie 值的规则一致：取账号的 `accessToken`（兼容 `access_token` / `jwt` / `token` 及 `cursorAuthRaw.accessToken`），从其 JWT payload 的 `sub` 取最后一个 `|` 之后的部分作为用户 ID；`sub` 不可用时回退到 `workosId` / `authId`。用户 ID 必须匹配 `user_[A-Za-z0-9_-]+`，否则该账号跳过。输出为 `<user_id>%3A%3A<accessToken>`；多个账号按行分隔，每行一个。
+2. 该动作只是既有敏感导出流的另一种剪贴板输出形态：转换在前端对弹窗中已经持有的导出 JSON 完成，不新增 Tauri 命令、网络端点、权限或落盘路径；明文 Token 仍只在用户主动点击后进入剪贴板，弹窗顶部的敏感提示继续覆盖它。
+3. 反馈全部在弹窗内呈现：成功后按钮临时显示“已复制网页 Token / Web token copied”；部分账号被跳过时在操作栏下方显示警告计数；没有任何账号可转换或剪贴板写入失败时显示错误，不写入剪贴板。不使用会被弹窗遮罩挡住的全局消息栏。
+
+决策依据：用户 2026-09-07 的明确需求（按钮位置、中英文文案、`<user_id>%3A%3A<accessToken>` 格式、多账号按行分隔、缺失或不合规账号跳过并友好提示）；`src-tauri/src/provider.rs::build_session_cookie` 的既有 user_ 校验与 Cookie 格式；本文件 D-011 的完整账号导出语义与 `SECURITY.md`“本地持久化与导出”。
