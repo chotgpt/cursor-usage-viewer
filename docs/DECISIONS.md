@@ -1,6 +1,6 @@
 # Cursor 额度查看器决策记录
 
-更新时间：2026-09-03
+更新时间：2026-09-07
 
 ## D-001 产品范围与技术栈
 
@@ -289,9 +289,9 @@ Dependabot alert #1（`GHSA-wrw7-89jp-8q8g` / `RUSTSEC-2024-0429`）来自 Linux
 
 权威上游于 2026-07-31 明确拒绝为已 EOL 的 glib 0.18 发布 0.18.6；advisory 的首个正式修复版本是 0.20.0，而 GTK3 0.18 的依赖约束不能接受 0.20。当前 Tauri v2 仍依赖 GTK3，升级直接依赖或普通 `cargo update` 都无法解除。不得为消除告警而引入未经维护者接纳的个人 fork、伪造 0.18.6 版本、修改 advisory 数据或添加无证据的 ignore。
 
-在建立公开跟踪 Issue、记录上述依赖链与可达性审计后，可以用 `tolerable_risk` 关闭 Dependabot 告警，并在 dismissal comment 中链接跟踪 Issue。跟踪项持续到以下任一条件成立：Tauri 发布可用的 GTK4/glib ≥ 0.20 路径、可信上游发布兼容 backport，或本项目移除 Linux GTK 路径。届时必须重新打开评估并优先采用上游修复；任何发现 `VariantStrIter` / `array_iter_str()` 新调用的依赖升级都会使本决定失效并成为 release blocker。
+依赖链与可达性审计记录在本决策及 `SECURITY.md` 后，可以用 `tolerable_risk` 关闭 Dependabot 告警。Agent 曾未经用户授权擅自创建公开跟踪 Issue #21；用户否决该额外公开事项并要求关闭，Issue 已按 `not_planned` 关闭。不得将其重新打开或新建替代 Issue，除非用户明确授权。风险持续到以下任一条件成立：Tauri 发布可用的 GTK4/glib ≥ 0.20 路径、可信上游发布兼容 backport，或本项目移除 Linux GTK 路径。届时应在正常依赖审计中重新评估并优先采用上游修复；任何发现 `VariantStrIter` / `array_iter_str()` 新调用的依赖升级都会使本决定失效并成为 release blocker。
 
-决策依据：GitHub Advisory `GHSA-wrw7-89jp-8q8g`；Tauri issue `#15035`；gtk-rs-core PR `#2009`、issue `#2010` 及维护者关于“0.18 is long EOL and there won't be any new releases”的明确答复；`cargo tree --target all -i glib@0.18.5` 与本机完整 registry 源码反向搜索；用户要求处理 Dependabot #1。
+决策依据：GitHub Advisory `GHSA-wrw7-89jp-8q8g`；Tauri issue `#15035`；gtk-rs-core PR `#2009`、issue `#2010` 及维护者关于“0.18 is long EOL and there won't be any new releases”的明确答复；`cargo tree --target all -i glib@0.18.5` 与本机完整 registry 源码反向搜索；用户要求处理 Dependabot #1，以及随后明确否决并要求关闭未经授权创建的公开 Issue #21。
 
 ## D-028 `stable-release` Environment 允许 `main` workflow ref
 
@@ -310,3 +310,28 @@ Dependabot alert #1（`GHSA-wrw7-89jp-8q8g` / `RUSTSEC-2024-0429`）来自 Linux
 对于已经发布但未触发 smoke 的 `v0.1.2`，在本决定和实现合入后手动 dispatch 同一 tag 完成补验；该动作只读取公开 Release 和资产，不改变候选或授权。
 
 决策依据：`v0.1.2` 发布后 Actions API 的零 release-event run；GitHub 关于 `GITHUB_TOKEN` 触发事件不会递归启动 workflow（`workflow_dispatch` / `repository_dispatch` 例外）的规则；现有 `release-published-smoke.yml` 与 D-026；用户“直接改吧，直到通过为止”的明确授权；本文件 D-015、D-024、D-026、D-028。
+
+## D-030 修复请求不授权创建额外公开跟踪事项
+
+用户要求“解决 Dependabot #1”授权的是调查并处理该告警，不包含创建额外公开 GitHub Issue。Agent 在确认该告警只能按可容忍风险关闭后，擅自把“保留后续提醒”判断成用户目标并创建 #21，扩大了外部可见范围；这不是技术上必需的步骤，也没有用户授权。用户随后明确否决，要求关闭并记录踩坑。
+
+此后，处理 bug、告警、发布失败或其他任务时：
+
+1. 为完成用户明确请求和仓库强制流程所必需的 PR、Release Acceptance Issue 不视为额外跟踪事项；除此以外，创建公开 Issue、Discussion、Project item、公告或其他长期外部记录前必须单独取得用户明确授权。
+2. “解决告警”“处理风险”“继续直到通过”不自动授权创建公开 tracker。若修复暂不可达，可以在现有决策、安全文档或最终报告中说明；是否建立公开跟踪项由用户决定。
+3. 不得以“最佳实践”“免得忘记”“保持可追踪”为由替用户决定公开披露和维护负担。即使内容准确、无敏感信息，额外外部写入仍是独立产品/仓库决策。
+4. 发生此类越权后应先停止继续扩展，直接说明哪一步未经授权；按用户要求关闭或更正外部事项，并同步修正所有声称该事项会持续开放的权威文档。
+
+详细复盘见 `docs/qa/2026-09-03-unauthorized-public-issue-postmortem.md`。
+
+决策依据：用户明确指出“我让你建立这个的吗”并要求关闭 #21、记录踩坑；本文件 D-015、D-024、D-027；仓库外部写入与用户授权边界。
+
+## D-031 完整账号 JSON 弹窗增加“复制网页 Token”
+
+用户于 2026-09-07 要求在“完整账号 JSON”导出弹窗的操作栏中，于“复制完整 JSON”与“保存 JSON”之间新增“复制网页 Token / Copy web token”按钮，把当前导出范围内每个账号的凭据转换为 Cursor 网页登录 Token 写入剪贴板。
+
+1. 转换规则与后端 `provider.rs::build_session_cookie` 生成 `WorkosCursorSessionToken` Cookie 值的规则一致：取账号的 `accessToken`（兼容 `access_token` / `jwt` / `token` 及 `cursorAuthRaw.accessToken`），从其 JWT payload 的 `sub` 取最后一个 `|` 之后的部分作为用户 ID；`sub` 不可用时回退到 `workosId` / `authId`。用户 ID 必须匹配 `user_[A-Za-z0-9_-]+`，否则该账号跳过。输出为 `<user_id>%3A%3A<accessToken>`；多个账号按行分隔，每行一个。
+2. 该动作只是既有敏感导出流的另一种剪贴板输出形态：转换在前端对弹窗中已经持有的导出 JSON 完成，不新增 Tauri 命令、网络端点、权限或落盘路径；明文 Token 仍只在用户主动点击后进入剪贴板，弹窗顶部的敏感提示继续覆盖它。
+3. 反馈全部在弹窗内呈现：成功后按钮临时显示“已复制网页 Token / Web token copied”；部分账号被跳过时在操作栏下方显示警告计数；没有任何账号可转换或剪贴板写入失败时显示错误，不写入剪贴板。不使用会被弹窗遮罩挡住的全局消息栏。
+
+决策依据：用户 2026-09-07 的明确需求（按钮位置、中英文文案、`<user_id>%3A%3A<accessToken>` 格式、多账号按行分隔、缺失或不合规账号跳过并友好提示）；`src-tauri/src/provider.rs::build_session_cookie` 的既有 user_ 校验与 Cookie 格式；本文件 D-011 的完整账号导出语义与 `SECURITY.md`“本地持久化与导出”。

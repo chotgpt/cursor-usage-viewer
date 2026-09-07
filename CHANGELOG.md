@@ -1,6 +1,11 @@
 # Changelog / 更新日志
 
-## 0.1.2 - Unreleased
+## 0.1.3 - 2026-09-07
+
+- Added "Copy web token" to the full-export dialog: converts each exported account to a `<user_id>%3A%3A<accessToken>` Cursor web session token, one per line, with in-dialog feedback for skipped accounts.
+- 完整导出弹窗新增“复制网页 Token”，把导出的账号逐行转换为 `<user_id>%3A%3A<accessToken>` 网页登录 Token；跳过的账号在弹窗内提示。
+
+## 0.1.2 - 2026-09-03
 
 - Multi-account Cursor usage workspace with local recoverable storage.
 - Cockpit-compatible paste import and sensitive full export.

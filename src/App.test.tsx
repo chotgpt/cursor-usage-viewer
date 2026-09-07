@@ -965,6 +965,44 @@ describe("multi-account workspace", () => {
     expect(dialog).toHaveClass("export-json-modal");
   });
 
+  it("copies web session tokens derived from the exported accounts", async () => {
+    const encode = (value: string) => btoa(value).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    const tokenOne = `${encode("{}")}.${encode(JSON.stringify({ sub: "auth0|user_01ONE" }))}.sig`;
+    const tokenTwo = `${encode("{}")}.${encode(JSON.stringify({ sub: "auth0|user_01TWO" }))}.sig`;
+    const baseImplementation = mockedInvoke.getMockImplementation();
+    mockedInvoke.mockImplementation(async (command, args) => command === "export_cursor_accounts"
+      ? JSON.stringify([{ id: "cursor_one", accessToken: tokenOne }, { id: "cursor_two", accessToken: tokenTwo }, { id: "cursor_three", email: "no-token@example.invalid" }])
+      : baseImplementation?.(command, args));
+    const user = userEvent.setup();
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+    render(<App />);
+    await screen.findByText("one@example.invalid");
+    await user.click(screen.getByRole("button", { name: "导出" }));
+    const dialog = await screen.findByRole("dialog", { name: "完整账号 JSON" });
+
+    const actions = dialog.querySelector(".export-json-actions") as HTMLElement;
+    const buttons = within(actions).getAllByRole("button").map((button) => button.textContent);
+    expect(buttons).toEqual(["显示", "复制完整 JSON", "复制网页 Token", "保存 JSON"]);
+
+    await user.click(within(dialog).getByRole("button", { name: "复制网页 Token" }));
+    expect(writeText).toHaveBeenCalledWith(`user_01ONE%3A%3A${tokenOne}\nuser_01TWO%3A%3A${tokenTwo}`);
+    expect(await within(dialog).findByRole("button", { name: "已复制网页 Token" })).toBeVisible();
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("已复制 2 个网页 Token，1 个账号因缺少 Access Token 或无法解析用户 ID 被跳过");
+  });
+
+  it("reports when no exported account can become a web token", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+    render(<App />);
+    await screen.findByText("one@example.invalid");
+    await user.click(screen.getByRole("button", { name: "导出" }));
+    const dialog = await screen.findByRole("dialog", { name: "完整账号 JSON" });
+    await user.click(within(dialog).getByRole("button", { name: "复制网页 Token" }));
+    expect(writeText).not.toHaveBeenCalled();
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("没有可转换的账号：缺少 Access Token 或无法解析出 user_ 开头的用户 ID");
+    expect(within(dialog).getByRole("button", { name: "复制网页 Token" })).toBeVisible();
+  });
+
   it("limits saved-path actions to successful exports and resets copied feedback on resave", async () => {
     mockedSave.mockResolvedValueOnce("C:\\Exports\\first.json").mockResolvedValueOnce("C:\\Exports\\second.json");
     const user = userEvent.setup();

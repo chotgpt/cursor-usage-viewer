@@ -52,7 +52,7 @@ Linux AppImage 使用标准 Tauri updater。deb/rpm 只有在用户明确点击�
 
 应用按用户确认的 Cockpit 兼容模式，在 Tauri `app_data_dir()` 下保存轻量账号索引及每账号独立 JSON 明细。账号明细和 `.bak` 包含明文 Access Token、Refresh Token、账号资料和最后额度快照；不提供 DPAPI 或额外加密层。能够读取当前 Windows 用户应用数据目录的其他进程也可能读取这些凭据。
 
-普通列表、刷新、自动刷新事件、网页登录状态、筛选和删除命令只返回脱敏 DTO，不含 Access Token、Refresh Token、Cookie、verifier 或原始认证对象。只有用户主动点击完整 JSON 导出时，包含明文 Token 的内容才可进入导出预览。预览按 Cockpit 行为默认遮罩全部字符串，并允许用户主动显隐、复制或保存；账号页的可折叠说明和导出弹窗文案必须明确内容敏感，但不增加额外确认步骤。
+普通列表、刷新、自动刷新事件、网页登录状态、筛选和删除命令只返回脱敏 DTO，不含 Access Token、Refresh Token、Cookie、verifier 或原始认证对象。只有用户主动点击完整 JSON 导出时，包含明文 Token 的内容才可进入导出预览。预览按 Cockpit 行为默认遮罩全部字符串，并允许用户主动显隐、复制或保存；账号页的可折叠说明和导出弹窗文案必须明确内容敏感，但不增加额外确认步骤。导出弹窗中的“复制网页 Token”只在前端把同一份导出 JSON 转换为 `<user_id>%3A%3A<accessToken>` 形式写入剪贴板（`docs/DECISIONS.md` §D-031），不新增命令、端点、权限或落盘路径。
 
 删除账号时必须删除该账号主 JSON 与账号 `.bak`，并清除可能保留已删除摘要的索引备份；不得让删除后的明文 Token 残留在账号备份文件中。索引仍可由现存账号明细重建。
 
@@ -68,7 +68,7 @@ SQLite 测试使用临时 fixture 数据库；存储测试使用临时目录；C
 
 ## 已知传递依赖风险
 
-Linux 的 Tauri v2 / GTK3 栈传递依赖 `glib 0.18.5`，受 `GHSA-wrw7-89jp-8q8g`（`RUSTSEC-2024-0429`）影响。缺陷位于 `glib::VariantStrIter` / `array_iter_str()`；当前项目及其消费方没有调用该 API，因此没有已知可达路径。它仍是真实的上游未定义行为风险，不是误报：glib 0.18 已 EOL 且维护者不会发布 backport，正式修复版 0.20 又不兼容当前 GTK3 依赖链。Dependabot 告警按 `docs/DECISIONS.md` §D-027 记录为可容忍风险并由公开 Issue 跟踪；Tauri 提供 GTK4/glib ≥ 0.20 路径、可信兼容 backport 出现，或依赖图新增该 API 调用时必须重新评估。
+Linux 的 Tauri v2 / GTK3 栈传递依赖 `glib 0.18.5`，受 `GHSA-wrw7-89jp-8q8g`（`RUSTSEC-2024-0429`）影响。缺陷位于 `glib::VariantStrIter` / `array_iter_str()`；当前项目及其消费方没有调用该 API，因此没有已知可达路径。它仍是真实的上游未定义行为风险，不是误报：glib 0.18 已 EOL 且维护者不会发布 backport，正式修复版 0.20 又不兼容当前 GTK3 依赖链。Dependabot 告警按 `docs/DECISIONS.md` §D-027 记录为可容忍风险；Tauri 提供 GTK4/glib ≥ 0.20 路径、可信兼容 backport 出现，或依赖图新增该 API 调用时必须重新评估。
 
 ## 明确不做
 

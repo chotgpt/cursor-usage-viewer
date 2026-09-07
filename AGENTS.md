@@ -44,3 +44,4 @@
 - 稳定版只能经 `.github/workflows/publish-stable.yml` 发布。必须满足 `docs/DECISIONS.md` §D-015、§D-024 和 `docs/RELEASING.md` 的精确 tag/SHA、人工验收、required checks、Draft 完整性、SHA256、attestation 与双重确认门禁。
 - 用户说“构建通过”“转公开”“生成 Draft”或“看起来没问题”均不等于验收通过或授权发布 stable。授权只对 owner 明确指定并记录在 Issue 中的精确 tag/SHA 有效；任何代码、tag 或资产变化都会使授权失效，必须重新验收和授权。
 - 人工验收未完成、只完成部分清单项或同意未落到精确 tag 时，Agent 必须停止并提问，只能报告未完成项和提供测试方法；禁止用 mock、单测、截图、打包成功或 Agent 自测冒充用户产品验收和计划 §17.4 的真实多平台安装/更新 E2E。
+- 除完成用户明确请求或仓库强制流程所必需的 PR、Release Acceptance Issue 外，Agent 不得自行创建公开 Issue、Discussion、Project item、公告或其他长期外部跟踪事项。“解决告警”“处理风险”“继续直到通过”不包含此类授权；如认为需要公开 tracker，必须先单独询问并取得明确同意。依据：`docs/DECISIONS.md` §D-030。
