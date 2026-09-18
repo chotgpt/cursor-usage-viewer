@@ -419,7 +419,10 @@ mod tests {
         let access_token = fake_access_token("auth0|user_01TEST");
         let invalid = [
             format!("other_01TEST::{access_token}"),
+            format!("user_::{access_token}"),
+            format!("user_01TEST!::{access_token}"),
             format!("user_01OTHER::{access_token}"),
+            "user_01TEST::e30.e30.signature".to_owned(),
             format!("user_01TEST::{access_token}::extra"),
             format!("user_01TEST%3A%3A{access_token}"),
             format!("user_01TEST%3a%3a{access_token}"),

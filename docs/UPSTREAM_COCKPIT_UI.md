@@ -15,7 +15,7 @@ License: CC BY-NC-SA 4.0. The adapted UI in this repository is non-commercial, a
 - Keep the table Cursor-specific: expose the four core quota columns plus Grok/Sand directly instead of Cockpit's provider-generic `Usage Details` cell. Split the Grok/Sand reset date and minute across lines, allow wrapped plan/reason text, and use controlled horizontal overflow at narrow widths rather than hiding semantic content.
 - Use a compact 1280×800 spacing adaptation around the fifth quota so the default viewport preserves Cockpit's three-column card structure and each visible card remains complete. Pagination stays after the paged results and may require scrolling, as required by the default page size and `docs/DECISIONS.md` §D-019.
 - Keep the project name and neutral icon; do not use Cockpit or Cursor branding assets.
-- Use one primary `+` account action with three tabs: Cursor web login; access token/Cockpit JSON; and read-only import of the current local Cursor account with a separate JSON-file action. The adjacent actions are refresh all, privacy, export and settings, in that order.
+- Use one primary `+` account action with three tabs: Cursor web login; access token/single-line web token/Cockpit JSON; and read-only import of the current local Cursor account with a separate JSON-file action. The adjacent actions are refresh all, privacy, export and settings, in that order.
 - Adapt Cockpit's Cursor auto-refresh contract into a single Rust/Tauri scheduler: default 10 minutes, off/2/5/10/15/custom choices, 5-second tick, one concurrent refresh, stable-key staggering and run protection. It remains active while the window is hidden to tray and shares the manual-refresh backend path.
 
 ## Imported file map

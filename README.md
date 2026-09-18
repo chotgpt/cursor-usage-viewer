@@ -7,10 +7,10 @@ An unofficial, non-commercial source-available desktop workspace for viewing and
 ## Features / 功能
 
 - High-density cards for Total, Auto + Composer, API, On-Demand and Grok/Sand, including the all-model dollar spend of the current Bot period.
-- A single add-account flow for Cursor web login, access-token or Cockpit JSON import, JSON file selection and read-only import of the current local Cursor account.
+- A single add-account flow for Cursor web login, bare access-token, single-line web token or Cockpit JSON import, JSON file selection and read-only import of the current local Cursor account.
 - Optional Cursor quota auto-refresh (off, 2/5/10/15 minutes or a custom interval), continuing while the window is hidden to the system tray.
 - Signed stable updates with a Draft-first three-platform release process.
-- 高密度额度卡（含 Bot 周期内全模型消费金额）、统一添加账号入口、存盘恢复、筛选分页和完整敏感导出。
+- 高密度额度卡（含 Bot 周期内全模型消费金额）、支持网页登录、裸 Access Token、单行网页 Token、Cockpit JSON、JSON 文件及本机只读导入的统一添加入口、存盘恢复、筛选分页和完整敏感导出。
 - Cursor 额度自动刷新可关闭或设置为 2/5/10/15 分钟及自定义间隔；窗口隐藏到托盘后仍继续运行。
 
 ## Screenshots / 截图
