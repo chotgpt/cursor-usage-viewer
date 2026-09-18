@@ -19,3 +19,4 @@ cursor-accounts*.json
 *.pfx
 /release-staging/
 updater-private-key*
+/references/cockpit-tools/
