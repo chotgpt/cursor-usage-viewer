@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { dictionaries, initialLanguage, type Language } from "./i18n";
 import { PAGE_SIZES, usePagination } from "./hooks/usePagination";
 import * as cursor from "./services/cursorService";
-import type { CursorAccountView, UsageAmount } from "./types";
+import type { CursorAccountView, SwitchAccountResult, UsageAmount } from "./types";
 import { useAppUpdater } from "./hooks/useAppUpdater";
 import UpdateDialog from "./components/updater/UpdateDialog";
 import VersionChangedDialog from "./components/updater/VersionChangedDialog";
@@ -14,12 +14,15 @@ import { AccountSelectionToolbar } from "./components/accounts/AccountSelectionT
 import { PaginationControls } from "./components/accounts/PaginationControls";
 import { SettingsPage, type AppTheme } from "./components/settings/SettingsPage";
 import { AddAccountModal } from "./components/accounts/AddAccountModal";
+import { CursorPathDialog } from "./components/accounts/CursorPathDialog";
+import { WindowsOperationDialog } from "./components/accounts/WindowsOperationDialog";
 import { useDialogFocus } from "./hooks/useDialogFocus";
 import { initialPrivacyMode, maskSensitiveValue, persistPrivacyMode } from "./utils/privacy";
+import { parseWindowsOperationError, type WindowsOperationErrorDetail } from "./utils/windowsOperationError";
 import { webSessionTokensFromExport } from "./utils/webToken";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { ArrowDownWideNarrow, ChevronDown, CircleAlert, Eye, EyeOff, Gauge, LayoutGrid, List, Lock, Plus, RefreshCw, RotateCw, Search, Settings as SettingsIcon, Tag, Trash2, Upload, X } from "lucide-react";
+import { ArrowDownWideNarrow, ChevronDown, CircleAlert, Eye, EyeOff, Gauge, LayoutGrid, List, Lock, Play, Plus, RefreshCw, RotateCw, Search, Settings as SettingsIcon, Tag, Trash2, Upload, X } from "lucide-react";
 
 type Page = "cursor" | "settings";
 type Layout = "grid" | "list";
@@ -70,6 +73,11 @@ export default function App() {
   const [noticeCollapsed, setNoticeCollapsed] = useState(() => {
     try { return localStorage.getItem(FLOW_NOTICE_COLLAPSED_KEY) === "1"; } catch { return false; }
   });
+  const [injectingAccountId, setInjectingAccountId] = useState<string | null>(null);
+  const injectingRef = useRef<string | null>(null);
+  const lastSwitchIdRef = useRef<string | null>(null);
+  const [pathMissing, setPathMissing] = useState(false);
+  const [windowsError, setWindowsError] = useState<WindowsOperationErrorDetail | null>(null);
 
   useEffect(() => { setAccountsLoading(true); void cursor.listAccounts().then(setAccounts).catch((error) => setMessage({ text: `${language === "en" ? "Load failed" : "加载失败"}: ${readableForLanguage(error, language)}`, tone: "error" })).finally(() => setAccountsLoading(false)); }, [language]);
   useEffect(() => { document.documentElement.lang = language; }, [language]);
@@ -96,6 +104,7 @@ export default function App() {
       listen("close-requested", () => setClosePrompt(true)),
       listen("manual-update-requested", () => { setPage("settings"); setMessage({ text: l("正在检查应用更新…", "Checking for application updates…"), tone: "success" }); void updater.checkNow(true); }),
       listen<import("./types").BatchAccountResult[]>("cursor-accounts-auto-refreshed", ({ payload }) => { payload.forEach((item) => { if (item.result) replaceAccount(item.result); }); }),
+      listen<{ app?: string }>("app:path_missing", ({ payload }) => { if (payload?.app === "cursor") setPathMissing(true); }),
     ]);
     return () => { void subscriptions.then((items) => items.forEach((unlisten) => unlisten())); };
   }, [language, updater.checkNow]);
@@ -174,6 +183,74 @@ export default function App() {
   async function revealSavedFile() { if (!exportState?.savedPath || !cursor.isTauri()) return; try { await cursor.revealSavedExport(exportState.savedPath); } catch (error) { setMessage({ text: `${l("打开保存位置失败", "Failed to open saved location")}: ${readableForLanguage(error, language)}`, tone: "error" }); } }
   async function confirmDelete() { if (!deleteTargets.length || busy.has("delete")) return; const ids = deleteTargets; setDeleteError(""); await withBusy(["delete"], async () => { try { if (ids.length === 1) await cursor.deleteAccount(ids[0]); else await cursor.deleteAccounts(ids); setDeleteTargets([]); setAccounts((items) => items.filter((item) => !ids.includes(item.id))); setSelected((items) => { const next = new Set(items); ids.forEach((id) => next.delete(id)); return next; }); setMessage({ text: language === "en" ? `Deleted ${ids.length} local account(s) and credential backups` : `已删除 ${ids.length} 个本地账号及凭据备份`, tone: "success" }); } catch (error) { setDeleteError(readableForLanguage(error, language)); } }); }
   async function saveTags() { if (!tagTarget || busy.has("tags")) return; const tags = inputTags(tagText); if (tags.length > 32) { setTagError(l("最多只能保存 32 个标签", "You can save at most 32 tags")); return; } if (tags.some((tag) => tag.length > 128)) { setTagError(l("单个标签不能超过 128 个字符", "Each tag must be at most 128 characters")); return; } setTagError(""); await withBusy(["tags"], async () => { try { replaceAccount(await cursor.updateAccountTags(tagTarget.id, tags)); setTagTarget(null); setTagText(""); setMessage({ text: l("账号标签已更新", "Account tags updated"), tone: "success" }); } catch (error) { setTagError(readableForLanguage(error, language)); } }); }
+  async function switchAccount(accountId: string) {
+    if (injectingRef.current) return;
+    const target = accounts.find((item) => item.id === accountId);
+    if (!target || isBannedAccount(target)) return;
+    injectingRef.current = accountId;
+    lastSwitchIdRef.current = accountId;
+    setMessage(null);
+    setInjectingAccountId(accountId);
+    const identity = maskSensitiveValue(displayIdentity(target), privacy);
+    try {
+      await applySwitchResult(await cursor.injectAccount(accountId), identity);
+    } catch (error) {
+      handleSwitchError(error);
+    } finally {
+      injectingRef.current = null;
+      setInjectingAccountId(null);
+    }
+  }
+  function applySwitchedAccount(account: CursorAccountView) {
+    setAccounts((items) => {
+      const next = items.some((item) => item.id === account.id)
+        ? items.map((item) => item.id === account.id ? { ...account, isCurrent: true } : { ...item, isCurrent: false })
+        : [{ ...account, isCurrent: true }, ...items.map((item) => ({ ...item, isCurrent: false }))];
+      return [...next].sort((left, right) => Number(right.isCurrent) - Number(left.isCurrent));
+    });
+  }
+  async function applySwitchResult(result: SwitchAccountResult, identity: string) {
+    try {
+      setAccounts(await cursor.listAccounts());
+    } catch {
+      applySwitchedAccount(result.account);
+    }
+    setMessage({ text: l(`已切换至 ${identity}`, `Switched to ${identity}`), tone: "success" });
+    if (result.launchStatus === "pathRequired") setPathMissing(true);
+  }
+  function handleSwitchError(error: unknown) {
+    const windows = parseWindowsOperationError(error);
+    if (windows) {
+      setWindowsError(windows);
+      return;
+    }
+    setMessage({ text: `${l("切换失败", "Switch failed")}: ${readableForLanguage(error, language)}`, tone: "error" });
+  }
+  async function retryWindowsSwitch() {
+    const accountId = lastSwitchIdRef.current;
+    if (!accountId || injectingRef.current) throw new Error(l("没有可重试的切号", "There is no switch to retry"));
+    injectingRef.current = accountId;
+    lastSwitchIdRef.current = accountId;
+    setInjectingAccountId(accountId);
+    const target = accounts.find((item) => item.id === accountId);
+    const identity = maskSensitiveValue(target ? displayIdentity(target) : accountId, privacy);
+    try {
+      await applySwitchResult(await cursor.injectAccount(accountId), identity);
+    } catch (error) {
+      handleSwitchError(error);
+      throw error;
+    } finally {
+      injectingRef.current = null;
+      setInjectingAccountId(null);
+    }
+  }
+  async function authorizeWindowsSwitch() {
+    if (!windowsError) return;
+    await cursor.windowsElevatedCloseCursorProcesses(windowsError.pids);
+    const result = await cursor.startDefaultCursorInstance();
+    const target = accounts.find((item) => item.id === (lastSwitchIdRef.current ?? result.account.id)) ?? result.account;
+    await applySwitchResult(result, maskSensitiveValue(displayIdentity(target), privacy));
+  }
 
   return <div className="app-container app-container-side-nav-classic">
     <aside className="side-nav side-nav-classic">
@@ -191,7 +268,7 @@ export default function App() {
         <div className="ghcp-accounts-page cursor-accounts-page">
         <div className={`ghcp-flow-notice ${noticeCollapsed ? "collapsed" : ""}`} role="note" aria-live="polite">
           <button type="button" className="ghcp-flow-notice-toggle" aria-expanded={!noticeCollapsed} onClick={() => setNoticeCollapsed((value) => !value)}><span className="ghcp-flow-notice-title"><CircleAlert size={16}/><span>{l("Cursor 账号管理说明（点击展开/收起）", "Cursor account management (expand/collapse)")}</span></span><ChevronDown className={`ghcp-flow-notice-arrow ${noticeCollapsed ? "collapsed" : ""}`} size={16}/></button>
-          {!noticeCollapsed && <div className="ghcp-flow-notice-body"><p className="ghcp-flow-notice-desc">{t.localNotice}</p><ul className="ghcp-flow-notice-list"><li>{l("账号凭据仅用于你主动发起的读取、导入、刷新和导出，以及你明确启用的定时刷新。", "Credentials are used only for actions you start and for automatic refreshes you explicitly enable.")}</li><li>{l("启动应用不会读取 Cursor 数据库；自动额度刷新仅在设置启用后运行。", "Starting the app never reads the Cursor database; automatic usage refresh runs only when enabled in Settings.")}</li></ul></div>}
+          {!noticeCollapsed && <div className="ghcp-flow-notice-body"><p className="ghcp-flow-notice-desc">{t.localNotice}</p><ul className="ghcp-flow-notice-list"><li>{l("账号凭据仅用于你主动发起的读取、导入、刷新、导出和默认实例 Play 切号，以及你明确启用的定时刷新。", "Credentials are used only for actions you start, including default-instance Play switching, and for automatic refreshes you explicitly enable.")}</li><li>{l("启动应用不会读取 Cursor 数据库；自动额度刷新仅在设置启用后运行。", "Starting the app never reads the Cursor database; automatic usage refresh runs only when enabled in Settings.")}</li><li>{l("Play 会覆盖默认 Cursor 登录状态并强制关闭/重启默认实例；Windows 下未保存内容可能丢失。", "Play overwrites the default Cursor login and force-closes/restarts the default instance. Unsaved work may be lost on Windows.")}</li></ul></div>}
         </div>
         {message && <div className={`message-bar ${message.tone}`}>{message.text}<button type="button" aria-label={l("关闭消息", "Dismiss message")} onClick={() => setMessage(null)}><X size={14}/></button></div>}
         <section className="toolbar">
@@ -226,7 +303,7 @@ export default function App() {
             actions={<><button className="btn btn-secondary" aria-busy={busy.has("refresh-all")} onClick={() => void refreshMany([...selected])} disabled={!selected.size || busy.has("refresh-all") || [...selected].some((id) => busy.has(id))}>{busy.has("refresh-all") ? <RefreshCw size={14} className="loading-spinner"/> : <RotateCw size={14}/>} {l("刷新选中", "Refresh selected")}</button><button className="btn btn-secondary" onClick={() => void openExport()}>{t.export}</button><button className="btn btn-danger" onClick={() => setDeleteTargets([...selected])}>{l("删除选中", "Delete selected")}</button></>}
           />
         )}
-        {accountsLoading && accounts.length === 0 ? <div className="loading-container"><RefreshCw size={24} className="loading-spinner"/><p>{l("加载中...", "Loading...")}</p></div> : accounts.length === 0 ? <div className="empty-state" role="region" aria-label={t.empty}><LayoutGrid size={48}/><h3>{t.empty}</h3><p>{l("通过网页登录、Token / JSON 或本机当前账号开始。", "Start with web login, Token / JSON, or the current local account.")}</p><div className="empty-state-actions"><button className="btn btn-primary" aria-label={l("添加账号", "Add account")} onClick={() => setShowAddAccount(true)}><Plus size={16}/>{l("添加账号", "Add account")}</button></div></div> : pagination.pageItems.length === 0 ? <div className="empty-state"><h3>{l("没有匹配的账号", "No matching accounts")}</h3><p>{l("请尝试调整搜索或筛选条件", "Try changing the search or filters")}</p></div> : layout === "grid" ? <div className={groupByTag ? "tag-group-list" : "grid-view-container"}>{pageGroups.map((group, index) => <section className={groupByTag ? "tag-group-section" : ""} key={group.label || `all-${index}`}>{group.label && <div className="tag-group-header"><span className="tag-group-title">{group.label}</span><span className="tag-group-count">{group.totalCount}</span></div>}<div className="ghcp-accounts-grid">{group.accounts.map((account) => <AccountCard key={`${group.label}-${account.id}`} language={language} account={account} privacy={privacy} selected={selected.has(account.id)} busy={busy.has(account.id)} onSelect={() => setSelected((old) => { const next = new Set(old); next.has(account.id) ? next.delete(account.id) : next.add(account.id); return next; })} onRefresh={() => void refreshOne(account.id)} onExport={() => void openExport([account.id])} onEditTags={() => { setTagError(""); setTagTarget(account); setTagText(account.tags.join(", ")); }} onDelete={() => { setDeleteError(""); setDeleteTargets([account.id]); }} />)}</div></section>)}</div> : <AccountTable language={language} groups={pageGroups} grouped={groupByTag} privacy={privacy} selected={selected} busy={busy} allPageSelected={allPageSelected} onToggleSelectAll={() => setSelected((old) => { const next = new Set(old); currentPageIds.forEach((id) => allPageSelected ? next.delete(id) : next.add(id)); return next; })} onSelect={(id) => setSelected((old) => { const next = new Set(old); next.has(id) ? next.delete(id) : next.add(id); return next; })} onRefresh={(id) => void refreshOne(id)} onExport={(id) => void openExport([id])} onEditTags={(id) => { const account = accounts.find((item) => item.id === id); if (account) { setTagError(""); setTagTarget(account); setTagText(account.tags.join(", ")); } }} onDelete={(id) => { setDeleteError(""); setDeleteTargets([id]); }}/>
+        {accountsLoading && accounts.length === 0 ? <div className="loading-container"><RefreshCw size={24} className="loading-spinner"/><p>{l("加载中...", "Loading...")}</p></div> : accounts.length === 0 ? <div className="empty-state" role="region" aria-label={t.empty}><LayoutGrid size={48}/><h3>{t.empty}</h3><p>{l("通过网页登录、Token / JSON 或本机当前账号开始。", "Start with web login, Token / JSON, or the current local account.")}</p><div className="empty-state-actions"><button className="btn btn-primary" aria-label={l("添加账号", "Add account")} onClick={() => setShowAddAccount(true)}><Plus size={16}/>{l("添加账号", "Add account")}</button></div></div> : pagination.pageItems.length === 0 ? <div className="empty-state"><h3>{l("没有匹配的账号", "No matching accounts")}</h3><p>{l("请尝试调整搜索或筛选条件", "Try changing the search or filters")}</p></div> : layout === "grid" ? <div className={groupByTag ? "tag-group-list" : "grid-view-container"}>{pageGroups.map((group, index) => <section className={groupByTag ? "tag-group-section" : ""} key={group.label || `all-${index}`}>{group.label && <div className="tag-group-header"><span className="tag-group-title">{group.label}</span><span className="tag-group-count">{group.totalCount}</span></div>}<div className="ghcp-accounts-grid">{group.accounts.map((account) => <AccountCard key={`${group.label}-${account.id}`} language={language} account={account} privacy={privacy} selected={selected.has(account.id)} busy={busy.has(account.id)} injecting={injectingAccountId === account.id} switchDisabled={injectingAccountId != null} onSelect={() => setSelected((old) => { const next = new Set(old); next.has(account.id) ? next.delete(account.id) : next.add(account.id); return next; })} onSwitch={() => void switchAccount(account.id)} onRefresh={() => void refreshOne(account.id)} onExport={() => void openExport([account.id])} onEditTags={() => { setTagError(""); setTagTarget(account); setTagText(account.tags.join(", ")); }} onDelete={() => { setDeleteError(""); setDeleteTargets([account.id]); }} />)}</div></section>)}</div> : <AccountTable language={language} groups={pageGroups} grouped={groupByTag} privacy={privacy} selected={selected} busy={busy} injectingAccountId={injectingAccountId} allPageSelected={allPageSelected} onToggleSelectAll={() => setSelected((old) => { const next = new Set(old); currentPageIds.forEach((id) => allPageSelected ? next.delete(id) : next.add(id)); return next; })} onSelect={(id) => setSelected((old) => { const next = new Set(old); next.has(id) ? next.delete(id) : next.add(id); return next; })} onSwitch={(id) => void switchAccount(id)} onRefresh={(id) => void refreshOne(id)} onExport={(id) => void openExport([id])} onEditTags={(id) => { const account = accounts.find((item) => item.id === id); if (account) { setTagError(""); setTagTarget(account); setTagText(account.tags.join(", ")); } }} onDelete={(id) => { setDeleteError(""); setDeleteTargets([id]); }}/>
         }
         <PaginationControls language={language} totalItems={filtered.length} currentPage={pagination.page} totalPages={pagination.pageCount} pageSize={pagination.pageSize} pageSizeOptions={PAGE_SIZES} rangeStart={(pagination.page - 1) * pagination.pageSize + 1} rangeEnd={Math.min(pagination.page * pagination.pageSize, filtered.length)} onPageSizeChange={pagination.setPageSize} onPreviousPage={() => pagination.setPage(pagination.page - 1)} onNextPage={() => pagination.setPage(pagination.page + 1)}/>
         </div>
@@ -245,10 +322,12 @@ export default function App() {
     {deleteTargets.length > 0 && <Modal language={language} title={deleteTargets.length === 1 ? l("删除本地账号？", "Delete local account?") : language === "en" ? `Delete ${deleteTargets.length} local accounts?` : `删除 ${deleteTargets.length} 个本地账号？`} footer={<><button className="btn btn-secondary" disabled={busy.has("delete")} onClick={() => { setDeleteError(""); setDeleteTargets([]); }}>{l("取消", "Cancel")}</button><button className="btn btn-danger" disabled={busy.has("delete")} onClick={() => void confirmDelete()}>{busy.has("delete") ? l("删除中…", "Deleting…") : l("删除", "Delete")}</button></>} onClose={() => { if (!busy.has("delete")) { setDeleteError(""); setDeleteTargets([]); } }}><p>{l("账号明细、凭据和对应 .bak 将从本机删除，无法撤销。", "Account details, credentials, and matching .bak files will be deleted locally. This cannot be undone.")}</p>{deleteError && <p className="modal-inline-error" role="alert">{l("删除失败：", "Delete failed: ")}{deleteError}</p>}</Modal>}
     {tagTarget && <Modal language={language} title={l("编辑账号标签", "Edit account tags")} footer={<><button className="btn btn-secondary" disabled={busy.has("tags")} onClick={() => { setTagError(""); setTagTarget(null); }}>{l("取消", "Cancel")}</button><button className="btn btn-primary" disabled={busy.has("tags")} onClick={() => void saveTags()}>{busy.has("tags") ? l("保存中…", "Saving…") : l("保存标签", "Save tags")}</button></>} onClose={() => { if (!busy.has("tags")) { setTagError(""); setTagTarget(null); } }}><p>{l("使用逗号或换行分隔标签，最多 32 个。", "Separate tags with commas or line breaks. Maximum 32 tags.")}</p><textarea data-dialog-autofocus aria-label={l("账号标签", "Account tags")} value={tagText} onChange={(event) => { setTagError(""); setTagText(event.target.value); }}/>{tagError && <p className="modal-inline-error" role="alert">{tagError}</p>}</Modal>}
     {closePrompt && <Modal language={language} title={l("关闭 Cursor Usage Viewer", "Close Cursor Usage Viewer")} footer={<><button className="btn btn-secondary" onClick={() => { setClosePrompt(false); void cursor.performClose("tray", rememberClose); }}>{l("最小化到托盘", "Minimize to tray")}</button><button className="btn btn-danger" onClick={() => void cursor.performClose("exit", rememberClose)}>{l("退出", "Exit")}</button></>} onClose={() => setClosePrompt(false)}><p>{l("选择最小化到系统托盘继续运行，或完全退出应用。已启用的 Cursor 额度自动刷新会在托盘中继续。", "Keep the app running in the system tray or exit completely. Enabled Cursor usage auto-refresh continues in the tray.")}</p><label className="remember-close"><input type="checkbox" checked={rememberClose} onChange={(event) => setRememberClose(event.target.checked)}/>{l("记住选择", "Remember choice")}</label></Modal>}
+    {pathMissing && <CursorPathDialog language={language} onClose={() => setPathMissing(false)} onLaunched={(result) => { setPathMissing(false); void applySwitchResult(result, maskSensitiveValue(displayIdentity(result.account), privacy)); }} onSwitchError={(error) => { const windows = parseWindowsOperationError(error); if (windows) { setPathMissing(false); setWindowsError(windows); } }}/>}
+    {windowsError && <WindowsOperationDialog language={language} error={windowsError} onClose={() => setWindowsError(null)} onRetry={retryWindowsSwitch} onAuthorize={windowsError.canElevate ? authorizeWindowsSwitch : undefined}/>}
   </div>;
 }
 
-function AccountCard({ language, account, privacy, selected, busy, onSelect, onRefresh, onExport, onEditTags, onDelete }: { language: Language; account: CursorAccountView; privacy: boolean; selected: boolean; busy: boolean; onSelect: () => void; onRefresh: () => void; onExport: () => void; onEditTags: () => void; onDelete: () => void }) {
+function AccountCard({ language, account, privacy, selected, busy, injecting, switchDisabled, onSelect, onSwitch, onRefresh, onExport, onEditTags, onDelete }: { language: Language; account: CursorAccountView; privacy: boolean; selected: boolean; busy: boolean; injecting: boolean; switchDisabled: boolean; onSelect: () => void; onSwitch: () => void; onRefresh: () => void; onExport: () => void; onEditTags: () => void; onDelete: () => void }) {
   const usage = account.coreUsage; const sand = account.sand;
   const l = (zh: string, en: string) => language === "en" ? en : zh;
   const identity = maskSensitiveValue(displayIdentity(account), privacy);
@@ -256,6 +335,7 @@ function AccountCard({ language, account, privacy, selected, busy, onSelect, onR
   const coreError = account.lastError ?? usage?.error;
   const banned = isBannedAccount(account);
   const statusError = account.status?.trim().toLocaleLowerCase() === "error";
+  const switchTitle = banned ? (account.statusReason ?? l("账号不可用", "Account unavailable")) : l("切换到 Cursor", "Switch to Cursor");
   return <article className={`ghcp-account-card account-card ${selected ? "selected" : ""} ${account.isCurrent ? "current is-current" : ""} ${banned ? "disabled" : ""}`}>
     <div className="card-top"><span className="card-select"><input type="checkbox" aria-label={`${l("选择", "Select")} ${identity}`} checked={selected} onChange={onSelect}/></span><span className="account-email identity" title={identity}><strong>{identity}</strong></span>{account.isCurrent && <span className="current-tag">{l("当前", "Current")}</span>}{statusError && <span className="status-pill warning" title={account.statusReason ?? l("账号刷新失败", "Account refresh failed")}><CircleAlert size={12}/>{l("刷新失败", "Refresh failed")}</span>}{coreError && <span className="status-pill warning" title={coreError}><CircleAlert size={12}/>{l("配额查询失败", "Quota query failed")}</span>}{banned && <span className="status-pill forbidden" title={account.statusReason ?? l("账号不可用", "Account unavailable")}><Lock size={12}/>{l("已禁用", "Forbidden")}</span>}<span className={`tier-badge ${planTone(account.membershipType, account)}`}>{planDisplay(account)}</span></div>
     <div className="account-sub-line"><span className="kiro-table-subline" title={`Auth ID: ${authId}`}>Auth ID: {authId}</span></div>
@@ -263,11 +343,11 @@ function AccountCard({ language, account, privacy, selected, busy, onSelect, onR
     <div className="ghcp-quota-section">{usage ? <><Quota language={language} label="Total Usage" value={usage.total} reset={usage.billingCycleEnd} currency/><Quota language={language} label="Auto + Composer" value={usage.autoComposer}/><Quota language={language} label="API Usage" value={usage.api}/><OnDemandQuota language={language} usage={usage}/></> : <QuotaEmpty language={language}/>}<SandQuota language={language} sand={sand}/></div>
     {coreError && <p className="account-error" title={coreError}>{l("核心额度", "Core usage")}: {providerErrorSummary(coreError, language)}</p>}
     {account.auxiliaryErrors.length > 0 && <p className="account-warning">{l("账号资料未完全更新", "Account metadata incomplete")}: {account.auxiliaryErrors.map((error) => providerDiagnosticSummary(error, language)).join(" · ")}</p>}
-    <footer className="card-footer"><span className="card-date">{usage ? `${usage.source === "live" ? l("实时查询", "Live") : l("导入缓存", "Imported cache")} · ${dateTime(usage.updatedAt)}` : l("暂无额度数据", "No usage data")}</span><div className="card-actions"><button className="card-action-btn" title={l("编辑标签", "Edit tags")} aria-label={`${l("编辑标签", "Edit tags")} ${identity}`} onClick={onEditTags}><Tag size={14}/></button><button className="card-action-btn" title={l("刷新", "Refresh")} aria-label={`${l("刷新", "Refresh")} ${identity}`} aria-busy={busy} onClick={onRefresh} disabled={busy}><RotateCw size={14} className={busy ? "loading-spinner" : ""}/></button><button className="card-action-btn" title={l("导出", "Export")} aria-label={`${l("导出", "Export")} ${identity}`} onClick={onExport}><Upload size={14}/></button><button className="card-action-btn danger" title={l("删除", "Delete")} aria-label={`${l("删除", "Delete")} ${identity}`} onClick={onDelete}><Trash2 size={14}/></button></div></footer>
+    <footer className="card-footer"><span className="card-date">{usage ? `${usage.source === "live" ? l("实时查询", "Live") : l("导入缓存", "Imported cache")} · ${dateTime(usage.updatedAt)}` : l("暂无额度数据", "No usage data")}</span><div className="card-actions"><button className="card-action-btn success" title={switchTitle} aria-label={`${l("切换到 Cursor", "Switch to Cursor")} ${identity}`} aria-busy={injecting} disabled={switchDisabled || banned} onClick={onSwitch}>{injecting ? <RefreshCw size={14} className="loading-spinner"/> : <Play size={14}/>}</button><button className="card-action-btn" title={l("编辑标签", "Edit tags")} aria-label={`${l("编辑标签", "Edit tags")} ${identity}`} onClick={onEditTags}><Tag size={14}/></button><button className="card-action-btn" title={l("刷新", "Refresh")} aria-label={`${l("刷新", "Refresh")} ${identity}`} aria-busy={busy} onClick={onRefresh} disabled={busy}><RotateCw size={14} className={busy ? "loading-spinner" : ""}/></button><button className="card-action-btn" title={l("导出", "Export")} aria-label={`${l("导出", "Export")} ${identity}`} onClick={onExport}><Upload size={14}/></button><button className="card-action-btn danger" title={l("删除", "Delete")} aria-label={`${l("删除", "Delete")} ${identity}`} onClick={onDelete}><Trash2 size={14}/></button></div></footer>
   </article>;
 }
 
-function AccountTable({ language, groups, grouped, privacy, selected, busy, allPageSelected, onToggleSelectAll, onSelect, onRefresh, onExport, onEditTags, onDelete }: { language: Language; groups: AccountGroup[]; grouped: boolean; privacy: boolean; selected: Set<string>; busy: Set<string>; allPageSelected: boolean; onToggleSelectAll: () => void; onSelect: (id: string) => void; onRefresh: (id: string) => void; onExport: (id: string) => void; onEditTags: (id: string) => void; onDelete: (id: string) => void }) {
+function AccountTable({ language, groups, grouped, privacy, selected, busy, injectingAccountId, allPageSelected, onToggleSelectAll, onSelect, onSwitch, onRefresh, onExport, onEditTags, onDelete }: { language: Language; groups: AccountGroup[]; grouped: boolean; privacy: boolean; selected: Set<string>; busy: Set<string>; injectingAccountId: string | null; allPageSelected: boolean; onToggleSelectAll: () => void; onSelect: (id: string) => void; onSwitch: (id: string) => void; onRefresh: (id: string) => void; onExport: (id: string) => void; onEditTags: (id: string) => void; onDelete: (id: string) => void }) {
   const l = (zh: string, en: string) => language === "en" ? en : zh;
   const renderRow = (account: CursorAccountView, groupLabel = "") => { const updatedAt = account.coreUsage ? dateTimeParts(account.coreUsage.updatedAt) : null; const coreError = account.lastError ?? account.coreUsage?.error; const identity = maskSensitiveValue(displayIdentity(account), privacy); const authId = maskSensitiveValue(account.authId ?? l("未知", "Unknown"), privacy); const banned = isBannedAccount(account); const statusError = account.status?.trim().toLocaleLowerCase() === "error"; return <tr key={`${groupLabel}-${account.id}`} className={`${account.isCurrent ? "current" : ""} ${selected.has(account.id) ? "selected" : ""} ${banned ? "disabled" : ""}`}>
     <td><input type="checkbox" aria-label={`${l("选择", "Select")} ${identity}`} checked={selected.has(account.id)} onChange={() => onSelect(account.id)}/></td>
@@ -275,7 +355,7 @@ function AccountTable({ language, groups, grouped, privacy, selected, busy, allP
     <td><span className={`tier-badge ${planTone(account.membershipType, account)}`}>{planDisplay(account)}</span></td>
     <td>{account.coreUsage ? <TableQuota language={language} value={account.coreUsage.total} reset={account.coreUsage.billingCycleEnd} currency/> : <TableQuotaEmpty language={language}/>}</td><td>{account.coreUsage ? <TableQuota language={language} value={account.coreUsage.autoComposer}/> : <TableQuotaEmpty language={language}/>}</td><td>{account.coreUsage ? <TableQuota language={language} value={account.coreUsage.api}/> : <TableQuotaEmpty language={language}/>}</td><td>{account.coreUsage ? <TableOnDemandQuota language={language} usage={account.coreUsage}/> : <TableQuotaEmpty language={language}/>}</td><td><TableSand language={language} sand={account.sand}/></td>
     <td className="table-updated">{updatedAt ? <><span className="table-updated-date">{updatedAt.date}</span><span className="table-updated-time">{updatedAt.time}</span></> : l("暂无数据", "No data")}</td>
-    <td><div className="table-actions"><button className="action-btn" title={l("编辑标签", "Edit tags")} aria-label={`${l("编辑标签", "Edit tags")} ${identity}`} onClick={() => onEditTags(account.id)}><Tag size={14}/></button><button className="action-btn" title={l("刷新", "Refresh")} aria-label={`${l("刷新", "Refresh")} ${identity}`} aria-busy={busy.has(account.id)} onClick={() => onRefresh(account.id)} disabled={busy.has(account.id)}><RotateCw size={14} className={busy.has(account.id) ? "loading-spinner" : ""}/></button><button className="action-btn" title={l("导出", "Export")} aria-label={`${l("导出", "Export")} ${identity}`} onClick={() => onExport(account.id)}><Upload size={14}/></button><button className="action-btn danger" title={l("删除", "Delete")} aria-label={`${l("删除", "Delete")} ${identity}`} onClick={() => onDelete(account.id)}><Trash2 size={14}/></button></div></td>
+    <td><div className="table-actions"><button className="action-btn success" title={banned ? (account.statusReason ?? l("账号不可用", "Account unavailable")) : l("切换到 Cursor", "Switch to Cursor")} aria-label={`${l("切换到 Cursor", "Switch to Cursor")} ${identity}`} aria-busy={injectingAccountId === account.id} disabled={injectingAccountId != null || banned} onClick={() => onSwitch(account.id)}>{injectingAccountId === account.id ? <RefreshCw size={14} className="loading-spinner"/> : <Play size={14}/>}</button><button className="action-btn" title={l("编辑标签", "Edit tags")} aria-label={`${l("编辑标签", "Edit tags")} ${identity}`} onClick={() => onEditTags(account.id)}><Tag size={14}/></button><button className="action-btn" title={l("刷新", "Refresh")} aria-label={`${l("刷新", "Refresh")} ${identity}`} aria-busy={busy.has(account.id)} onClick={() => onRefresh(account.id)} disabled={busy.has(account.id)}><RotateCw size={14} className={busy.has(account.id) ? "loading-spinner" : ""}/></button><button className="action-btn" title={l("导出", "Export")} aria-label={`${l("导出", "Export")} ${identity}`} onClick={() => onExport(account.id)}><Upload size={14}/></button><button className="action-btn danger" title={l("删除", "Delete")} aria-label={`${l("删除", "Delete")} ${identity}`} onClick={() => onDelete(account.id)}><Trash2 size={14}/></button></div></td>
   </tr>; };
   return <div className={`account-table-container ${grouped ? "grouped" : ""}`}><table className="account-table" aria-label={l("Cursor 账号列表", "Cursor account list")}><thead><tr><th><input type="checkbox" aria-label={l("选择当前页全部账号", "Select all accounts on this page")} checked={allPageSelected} onChange={onToggleSelectAll}/></th><th>{l("账号", "Account")}</th><th>{l("套餐", "Plan")}</th><th>Total</th><th>Auto + Composer</th><th>API</th><th>On-Demand</th><th>Grok / Sand</th><th>{l("更新时间", "Updated")}</th><th>{l("操作", "Actions")}</th></tr></thead><tbody>{groups.map((group, index) => <Fragment key={group.label || `all-${index}`}>{grouped && <tr className="tag-group-row"><td colSpan={10}><div className="tag-group-header"><span className="tag-group-title">{group.label}</span><span className="tag-group-count">{group.totalCount}</span></div></td></tr>}{group.accounts.map((account) => renderRow(account, group.label))}</Fragment>)}</tbody></table></div>;
 }

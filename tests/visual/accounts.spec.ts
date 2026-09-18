@@ -201,6 +201,41 @@ test.beforeEach(async ({ page }) => {
           const mode = (window as typeof window & { __VISUAL_MODE__: string }).__VISUAL_MODE__;
           if (command === "list_cursor_accounts") return currentAccounts;
           if (command === "get_cursor_settings") return { schemaVersion: 1, autoRefreshMinutes: 10 };
+          if (command === "get_cursor_app_path") return null;
+          if (command === "detect_cursor_app_path") {
+            if (mode === "path_scan") return "C:\\Users\\t\\AppData\\Local\\Programs\\Cursor\\Cursor.exe";
+            return null;
+          }
+          if (command === "scan_cursor_app_path") {
+            if (mode === "path_scan") {
+              return [{ label: "Cursor.exe", target: "C:\\Users\\t\\AppData\\Local\\Programs\\Cursor\\Cursor.exe" }];
+            }
+            return [];
+          }
+          if (command === "inject_cursor_account") {
+            const account = currentAccounts.find((item) => item.id === args?.accountId) ?? currentAccounts[0];
+            if (mode === "path_missing" || mode === "path_scan" || mode === "path_scan_empty") {
+              return { account: { ...account, isCurrent: true }, launchStatus: "pathRequired" };
+            }
+            if (mode === "windows_close") {
+              throw new Error(`WINDOWS_OPERATION_ERROR:${JSON.stringify({
+                code: "access_denied",
+                operation: "stop_process",
+                summary: "关闭默认 Cursor 实例失败",
+                originalReason: "access denied",
+                target: "cursor",
+                pids: [4242],
+                retryable: true,
+                canElevate: true,
+                manualActionAvailable: false,
+                attemptedRecoveries: ["taskkill"],
+              })}`);
+            }
+            if (mode === "play_busy") {
+              return new Promise(() => undefined);
+            }
+            return { account: { ...account, isCurrent: true }, launchStatus: "launched" };
+          }
           if (command === "get_update_settings") return { schemaVersion: 1, autoCheck: false, checkIntervalHours: 1, autoInstall: false, remindOnUpdate: true, lastCheckTime: 0, lastRunVersion: "", skippedVersion: "", pendingNotes: null };
           if (command === "consume_version_change") return (window as typeof window & { __VISUAL_VERSION_CHANGE__: unknown }).__VISUAL_VERSION_CHANGE__;
           if (command === "plugin:app|version") return "0.1.0";
@@ -729,4 +764,104 @@ test("Cursor privacy mode removes sensitive DOM and accessible names", async ({ 
   await expect(page.locator("body")).not.toContainText("auth0|user_N9X");
   await expect(page.getByRole("button", { name: /local\.current@example\.invalid/ })).toHaveCount(0);
   await expect(page).toHaveScreenshot("cursor-accounts-privacy-dark.png", { fullPage: false });
+});
+
+test("Cursor path-missing dialog visual contract", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("cursor-theme", "dark");
+    (window as typeof window & { __VISUAL_MODE__: string }).__VISUAL_MODE__ = "path_missing";
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "切换到 Cursor local.current@example.invalid" }).click();
+  const dialog = page.getByRole("dialog", { name: "未找到应用程序路径" });
+  await expect(dialog).toBeVisible();
+  await expect(page.getByText("已切换至 local.current@example.invalid")).toBeVisible();
+  await expect(dialog.getByRole("textbox", { name: "Cursor 路径" })).toBeVisible();
+  await expect(page).toHaveScreenshot("cursor-path-missing-dark.png", { fullPage: false });
+});
+
+test("Cursor path-missing Windows candidates visual contract", async ({ page }) => {
+  test.skip(process.platform !== "win32", "Cockpit only scans running apps on Windows");
+  await page.addInitScript(() => {
+    localStorage.setItem("cursor-theme", "dark");
+    (window as typeof window & { __VISUAL_MODE__: string }).__VISUAL_MODE__ = "path_scan";
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "切换到 Cursor local.current@example.invalid" }).click();
+  const dialog = page.getByRole("dialog", { name: "未找到应用程序路径" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "检测运行中应用" }).click();
+  await expect(dialog.getByText("C:\\Users\\t\\AppData\\Local\\Programs\\Cursor\\Cursor.exe")).toBeVisible();
+  await expect(page).toHaveScreenshot("cursor-path-missing-scan-dark.png", { fullPage: false });
+});
+
+test("Cursor path-missing scan empty error visual contract", async ({ page }) => {
+  test.skip(process.platform !== "win32", "Cockpit only scans running apps on Windows");
+  await page.addInitScript(() => {
+    localStorage.setItem("cursor-theme", "dark");
+    (window as typeof window & { __VISUAL_MODE__: string }).__VISUAL_MODE__ = "path_scan_empty";
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "切换到 Cursor local.current@example.invalid" }).click();
+  const dialog = page.getByRole("dialog", { name: "未找到应用程序路径" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "检测运行中应用" }).click();
+  await expect(dialog.getByRole("alert")).toContainText("未检测到运行中的 Cursor");
+  await expect(page).toHaveScreenshot("cursor-path-missing-scan-empty-dark.png", { fullPage: false });
+});
+
+test("Cursor Windows operation error dialog visual contract", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("cursor-theme", "dark");
+    (window as typeof window & { __VISUAL_MODE__: string }).__VISUAL_MODE__ = "windows_close";
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "切换到 Cursor local.current@example.invalid" }).click();
+  const dialog = page.getByRole("dialog", { name: "关闭默认 Cursor 实例失败" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "授权并继续" })).toBeVisible();
+  await expect(page).toHaveScreenshot("cursor-windows-operation-dark.png", { fullPage: false });
+});
+
+test("Cursor Play busy spinner visual contract", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("cursor-theme", "dark");
+    (window as typeof window & { __VISUAL_MODE__: string }).__VISUAL_MODE__ = "play_busy";
+  });
+  await page.goto("/");
+  const play = page.getByRole("button", { name: "切换到 Cursor local.current@example.invalid" });
+  await play.click();
+  const spinner = play.locator(".loading-spinner");
+  await expect(play).toBeDisabled();
+  await expect(spinner).toHaveCSS("animation-name", "loading-spin");
+  await page.waitForTimeout(300);
+  await spinner.evaluate((element) => {
+    const animation = element.getAnimations()[0];
+    if (!animation) throw new Error("play spinner animation is missing");
+    animation.pause();
+    animation.currentTime = 200;
+  });
+  await expect(play).toHaveScreenshot("cursor-account-play-busy-dark.png");
+});
+
+test("Cursor banned Play is disabled visual contract", async ({ page }) => {
+  await page.addInitScript((fixtureAccounts) => {
+    localStorage.setItem("cursor-theme", "dark");
+    const next = fixtureAccounts.map((item, index) => index === 0 ? { ...item, status: "banned", statusReason: "suspended" } : item);
+    (window as typeof window & { __VISUAL_ACCOUNTS__: typeof fixtureAccounts }).__VISUAL_ACCOUNTS__ = next;
+  }, accounts);
+  await page.goto("/");
+  const play = page.getByRole("button", { name: "切换到 Cursor ocean.viewer@example.invalid" });
+  await expect(play).toBeDisabled();
+  await expect(play).toHaveScreenshot("cursor-account-play-banned-dark.png");
+});
+
+test("Cursor settings launch path visual contract", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("cursor-theme", "dark"));
+  await page.goto("/");
+  await page.getByRole("button", { name: "设置" }).first().click();
+  const input = page.getByRole("textbox", { name: "Cursor 路径" });
+  await expect(input).toBeVisible();
+  await input.scrollIntoViewIfNeeded();
+  await expect(page.locator(".settings-row").filter({ has: input })).toHaveScreenshot("cursor-settings-launch-path-dark.png");
 });

@@ -1,0 +1,10 @@
+.cursor-path-dialog { width: min(640px, calc(100vw - 48px)); }
+.cursor-path-field { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; color: var(--text-primary); font-size: 13px; font-weight: 500; }
+.cursor-path-row { display: flex; align-items: center; gap: 8px; }
+.cursor-path-row input { flex: 1; min-width: 0; height: 38px; padding: 0 12px; border: 1px solid var(--border); border-radius: 10px; color: var(--text-primary); background: var(--bg-tertiary); font-size: 13px; font-weight: 400; }
+.cursor-path-row .btn { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.cursor-path-candidates { display: flex; flex-direction: column; margin: 12px 0 0; padding: 0; gap: 6px; list-style: none; }
+.cursor-path-candidate { display: flex; width: 100%; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 10px; border: 1px solid var(--border-light); border-radius: 10px; color: var(--text-primary); background: var(--bg-tertiary); text-align: left; }
+.cursor-path-candidate.selected, .cursor-path-candidate:hover { border-color: var(--primary); background: var(--primary-light); }
+.cursor-path-candidate code { overflow: hidden; max-width: 100%; color: var(--text-secondary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.cursor-path-row .spin { animation: loading-spin .8s linear infinite; }

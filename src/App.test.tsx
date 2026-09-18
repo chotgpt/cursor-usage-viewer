@@ -66,6 +66,22 @@ describe("multi-account workspace", () => {
         return { ...(listedAccounts.find((item) => item.id === values.accountId) ?? account()), tags: values.tags, lastUsed: 3 };
       }
       if (command === "delete_cursor_account" || command === "delete_cursor_accounts") return null;
+      if (command === "get_cursor_app_path") return null;
+      if (command === "detect_cursor_app_path") return "C:\\Users\\t\\AppData\\Local\\Programs\\Cursor\\Cursor.exe";
+      if (command === "scan_cursor_app_path") return [];
+      if (command === "save_cursor_app_path") return (args as { path: string }).path || null;
+      if (command === "start_default_cursor_instance") {
+        const current = listedAccounts.find((item) => item.isCurrent) ?? listedAccounts[0];
+        return { account: current, launchStatus: "launched" };
+      }
+      if (command === "windows_elevated_close_cursor_processes") return (args as { pids: number[] }).pids.length;
+      if (command === "inject_cursor_account") {
+        const accountId = (args as { accountId: string }).accountId;
+        listedAccounts = listedAccounts
+          .map((item) => ({ ...item, isCurrent: item.id === accountId }))
+          .sort((left, right) => Number(right.isCurrent) - Number(left.isCurrent));
+        return { account: listedAccounts.find((item) => item.id === accountId) ?? account(accountId), launchStatus: "launched" };
+      }
       throw new Error(`unexpected command ${command} ${JSON.stringify(args)}`);
     });
   });
@@ -486,11 +502,11 @@ describe("multi-account workspace", () => {
     expect(screen.getByRole("note")).toBeVisible();
     const toggle = screen.getByRole("button", { name: "Cursor 账号管理说明（点击展开/收起）" });
     expect(toggle).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText("账号凭据仅用于你主动发起的读取、导入、刷新和导出，以及你明确启用的定时刷新。")).toBeVisible();
+    expect(screen.getByText("账号凭据仅用于你主动发起的读取、导入、刷新、导出和默认实例 Play 切号，以及你明确启用的定时刷新。")).toBeVisible();
 
     await user.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByText("账号凭据仅用于你主动发起的读取、导入、刷新和导出，以及你明确启用的定时刷新。")).not.toBeInTheDocument();
+    expect(screen.queryByText("账号凭据仅用于你主动发起的读取、导入、刷新、导出和默认实例 Play 切号，以及你明确启用的定时刷新。")).not.toBeInTheDocument();
     expect(localStorage.getItem("cursor-flow-notice-collapsed")).toBe("1");
 
     unmount();
@@ -1167,5 +1183,190 @@ describe("multi-account workspace", () => {
     expect(screen.getByText("$0.20 / $1.00")).toBeVisible();
     expect(screen.getAllByText("已禁用").length).toBeGreaterThan(0);
     expect(container.querySelector(".account-card")).toHaveClass("disabled");
+  });
+
+  it("places Play leftmost on cards and list rows and switches without confirmation", async () => {
+    listedAccounts = [
+      { ...account("cursor_one", "one@example.invalid"), isCurrent: true },
+      account("cursor_two", "two@example.invalid"),
+    ];
+    const user = userEvent.setup();
+    const { container } = render(<App />);
+    await screen.findByText("one@example.invalid");
+
+    const currentCard = container.querySelector(".account-card.current") ?? container.querySelector(".account-card");
+    const cardActions = [...(currentCard?.querySelectorAll(".card-actions button") ?? [])];
+    expect(cardActions.map((button) => button.getAttribute("aria-label"))).toEqual([
+      "切换到 Cursor one@example.invalid",
+      "编辑标签 one@example.invalid",
+      "刷新 one@example.invalid",
+      "导出 one@example.invalid",
+      "删除 one@example.invalid",
+    ]);
+    expect(cardActions[0]).toHaveClass("success");
+    expect(cardActions[0]).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: "列表布局" }));
+    const rowActions = [...container.querySelectorAll(".account-table tbody tr:first-child .table-actions button")];
+    expect(rowActions[0]?.getAttribute("aria-label")).toBe("切换到 Cursor one@example.invalid");
+    expect(rowActions[0]).toHaveClass("success");
+    expect(rowActions[0]).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: "切换到 Cursor two@example.invalid" }));
+    await waitFor(() => expect(mockedInvoke).toHaveBeenCalledWith("inject_cursor_account", { accountId: "cursor_two" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(await screen.findByText("已切换至 two@example.invalid")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "网格布局" }));
+    const currentTags = [...container.querySelectorAll(".account-card.current .identity strong")].map((node) => node.textContent);
+    expect(currentTags).toEqual(["two@example.invalid"]);
+  });
+
+  it("disables Play for banned accounts and shows a spinner on the target while a switch is running", async () => {
+    listedAccounts = [
+      account("cursor_one", "one@example.invalid"),
+      { ...account("cursor_banned", "banned@example.invalid"), status: "banned", statusReason: "suspended" },
+    ];
+    let finishInject: ((value: { account: CursorAccountView; launchStatus: string }) => void) | undefined;
+    mockedInvoke.mockImplementation(async (command, args) => {
+      if (command === "list_cursor_accounts") return listedAccounts;
+      if (command === "get_update_settings") return { schemaVersion: 1, autoCheck: false, checkIntervalHours: 1, autoInstall: false, remindOnUpdate: true, lastCheckTime: 0, lastRunVersion: "", skippedVersion: "", pendingNotes: null };
+      if (command === "get_desktop_settings") return { schemaVersion: 1, closeBehavior: "ask", startMinimized: false, rememberWindow: false, windowX: null, windowY: null, windowWidth: null, windowHeight: null };
+      if (command === "get_cursor_settings") return { schemaVersion: 1, autoRefreshMinutes: 10 };
+      if (command === "consume_version_change") return null;
+      if (command === "get_release_history") return [];
+      if (command === "inject_cursor_account") {
+        return new Promise((resolve) => {
+          finishInject = resolve;
+        });
+      }
+      throw new Error(`unexpected command ${command} ${JSON.stringify(args)}`);
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByText("one@example.invalid");
+
+    expect(screen.getByRole("button", { name: "切换到 Cursor banned@example.invalid" })).toBeDisabled();
+    const play = screen.getByRole("button", { name: "切换到 Cursor one@example.invalid" });
+    await user.click(play);
+    await user.click(play);
+    await waitFor(() => expect(play.querySelector(".loading-spinner")).toBeTruthy());
+    expect(play).toBeDisabled();
+    expect(screen.getByRole("button", { name: "切换到 Cursor banned@example.invalid" })).toBeDisabled();
+    expect(mockedInvoke.mock.calls.filter(([command]) => command === "inject_cursor_account")).toHaveLength(1);
+
+    finishInject?.({ account: { ...account(), isCurrent: true }, launchStatus: "launched" });
+    await waitFor(() => expect(play.querySelector(".loading-spinner")).toBeNull());
+  });
+
+  it("opens the path dialog on pathRequired and retries only the default instance after save", async () => {
+    const previous = mockedInvoke.getMockImplementation();
+    mockedInvoke.mockImplementation(async (command, args) => {
+      if (command === "inject_cursor_account") {
+        listedAccounts = listedAccounts.map((item) => ({ ...item, isCurrent: item.id === "cursor_one" }));
+        return { account: { ...listedAccounts[0], isCurrent: true }, launchStatus: "pathRequired" };
+      }
+      return previous?.(command, args);
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByText("one@example.invalid");
+    await user.click(screen.getByRole("button", { name: "切换到 Cursor one@example.invalid" }));
+    const dialog = await screen.findByRole("dialog", { name: "未找到应用程序路径" });
+    expect(await screen.findByText("已切换至 one@example.invalid")).toBeVisible();
+    expect(within(dialog).getByRole("textbox", { name: "Cursor 路径" })).toBeVisible();
+    const pathInput = within(dialog).getByRole("textbox", { name: "Cursor 路径" });
+    await waitFor(() => expect(pathInput).toBeEnabled());
+    await user.clear(pathInput);
+    await user.type(pathInput, "/usr/bin/cursor");
+    await user.click(within(dialog).getByRole("button", { name: "保存并继续" }));
+    await waitFor(() => expect(mockedInvoke).toHaveBeenCalledWith("save_cursor_app_path", { path: "/usr/bin/cursor" }));
+    await waitFor(() => expect(mockedInvoke).toHaveBeenCalledWith("start_default_cursor_instance"));
+    expect(mockedInvoke.mock.calls.filter(([command]) => command === "inject_cursor_account")).toHaveLength(1);
+    expect(screen.queryByRole("dialog", { name: "未找到应用程序路径" })).not.toBeInTheDocument();
+  });
+
+  it("treats launchFailed as a soft success and still shows the switched message", async () => {
+    const previous = mockedInvoke.getMockImplementation();
+    mockedInvoke.mockImplementation(async (command, args) => {
+      if (command === "inject_cursor_account") {
+        listedAccounts = listedAccounts.map((item) => ({ ...item, isCurrent: item.id === "cursor_one" }));
+        return { account: { ...listedAccounts[0], isCurrent: true }, launchStatus: "launchFailed" };
+      }
+      return previous?.(command, args);
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByText("one@example.invalid");
+    await user.click(screen.getByRole("button", { name: "切换到 Cursor one@example.invalid" }));
+    expect(await screen.findByText("已切换至 one@example.invalid")).toBeVisible();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByText(/切换失败/)).not.toBeInTheDocument();
+  });
+
+  it("keeps the Windows dialog open when retry fails again", async () => {
+    const previous = mockedInvoke.getMockImplementation();
+    mockedInvoke.mockImplementation(async (command, args) => {
+      if (command === "inject_cursor_account") {
+        throw new Error(`WINDOWS_OPERATION_ERROR:${JSON.stringify({
+          code: "access_denied",
+          operation: "stop_process",
+          summary: "关闭默认 Cursor 实例失败",
+          originalReason: "access denied",
+          target: "cursor",
+          pids: [4242],
+          retryable: true,
+          canElevate: true,
+          manualActionAvailable: false,
+          attemptedRecoveries: ["taskkill"],
+        })}`);
+      }
+      return previous?.(command, args);
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByText("one@example.invalid");
+    await user.click(screen.getByRole("button", { name: "切换到 Cursor one@example.invalid" }));
+    const dialog = await screen.findByRole("dialog", { name: "关闭默认 Cursor 实例失败" });
+    await user.click(within(dialog).getByRole("button", { name: "重试" }));
+    expect(await screen.findByRole("dialog", { name: "关闭默认 Cursor 实例失败" })).toBeVisible();
+    expect(mockedInvoke.mock.calls.filter(([command]) => command === "inject_cursor_account")).toHaveLength(2);
+  });
+
+  it("shows a redacted Windows operation dialog instead of a raw close error", async () => {
+    const previous = mockedInvoke.getMockImplementation();
+    mockedInvoke.mockImplementation(async (command, args) => {
+      if (command === "inject_cursor_account") {
+        throw new Error(`WINDOWS_OPERATION_ERROR:${JSON.stringify({
+          code: "access_denied",
+          operation: "stop_process",
+          summary: "关闭默认 Cursor 实例失败",
+          originalReason: "access denied",
+          target: "cursor",
+          pids: [4242],
+          retryable: true,
+          canElevate: true,
+          manualActionAvailable: false,
+          attemptedRecoveries: ["taskkill"],
+        })}`);
+      }
+      return previous?.(command, args);
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByText("one@example.invalid");
+    await user.click(screen.getByRole("button", { name: "切换到 Cursor one@example.invalid" }));
+    const dialog = await screen.findByRole("dialog", { name: "关闭默认 Cursor 实例失败" });
+    expect(within(dialog).getByRole("button", { name: "授权并继续" })).toBeVisible();
+    expect(document.body.textContent).not.toContain("accessToken");
+    expect(document.body.textContent).not.toContain("taskkill /PID");
+  });
+
+  it("exposes the Cursor launch path on the settings page", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByText("one@example.invalid");
+    await user.click(screen.getAllByRole("button", { name: "设置" })[0]);
+    expect(await screen.findByRole("textbox", { name: "Cursor 路径" })).toBeVisible();
+    await waitFor(() => expect(mockedInvoke).toHaveBeenCalledWith("get_cursor_app_path"));
   });
 });

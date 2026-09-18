@@ -1,6 +1,6 @@
 # Cursor 额度查看器决策记录
 
-更新时间：2026-09-18
+更新时间：2026-09-19
 
 ## D-001 产品范围与技术栈
 
@@ -345,3 +345,17 @@ Dependabot alert #1（`GHSA-wrw7-89jp-8q8g` / `RUSTSEC-2024-0429`）来自 Linux
 3. 该格式复用现有 Token 输入框、Tauri command、明文账号存储和刷新链路，不新增端点、权限或网络请求。与其他粘贴导入一致，导入只保存账号；只有用户手动刷新或已启用的自动刷新才查询额度。
 
 决策依据：用户 2026-09-18 提供的单行 `user_…::<JWT>` 形态及“只加一个这种就行”的明确范围；本文件 D-022 的单 Token 导入与 D-031 的网页 Token 身份规则；`src-tauri/src/provider.rs::build_session_cookie` 的既有 `user_` 校验。
+
+## D-033 默认 Cursor 实例 Play 一键切号
+
+用户于 2026-09-18 要求按 Cockpit Tools 固定提交 `a0508ae815e104e931dae515389e680840008367`，在 Windows、macOS、Linux 定向移植 Cursor 账号页 Play 一键切号，只操作默认 Cursor 实例。实施真源为 `docs/plans/2026-09-18-cockpit-cursor-one-click-switch.md`；“完整复刻”指该计划“目标与固定口径”中的可见结构、状态转换、写库、默认实例关闭/重启、路径恢复和 Windows 错误恢复语义，允许不改变外部行为的安全加固（SQLite 单事务、更窄的 UAC 进程白名单）。
+
+1. D-003 的现有导入读取路径继续严格只读；只有新的、由用户点击 Play 触发的注入函数可对默认 `state.vscdb` 精确写入。读取默认 Cursor `state.vscdb` 仍须由用户主动触发，启动时不得自动读取校准。
+2. 窄范围取代 D-001、D-011、D-016、D-017、D-022 中与默认实例一键切号直接冲突的句子（“不提供 Cursor 注入”“不实现切号/Token 注入/启动 Cursor”“不显示切号能力”）。其他 Provider、无关权限、自动读取、多开实例页、任意命令执行、shell 插件、sidecar 与 Cockpit 品牌资源仍禁止。
+3. Owner 已封板决定：点击 Play 后不二次确认；卡片和列表的 Play 均位于账号操作区最左侧；当前账号也允许再次切换；Windows 严格采用 `taskkill /PID … /T /F`，访问被拒时提供仅限已验证 Cursor PID 的 UAC 提权重试；UI 与安全文档必须说明未保存内容可能丢失。
+4. 账号缺少 Refresh Token、套餐或订阅状态时，严格沿用 Cockpit 语义：不写该键，也不删除 Cursor 数据库中的旧值。账号缺少邮箱时，沿用 Cockpit Token 导入习惯，向 `cursorAuth/cachedEmail` 和 `cursor.email` 写入字面值 `unknown`。
+5. “当前”表示上次由本应用主动读取或切换的账号并持久化；重启后继续显示。这可能在用户随后直接于 Cursor 内切号后过期，本应用不得为校准它而在启动时自动读取真实 `state.vscdb`。
+6. 切号部分成功语义：首次注入失败为硬失败，不更新当前/绑定，不关闭 Cursor；路径缺失时首次注入与当前/绑定已完成，按软成功返回并发出 `app:path_missing` 由路径弹层恢复后只重试默认实例启动；spawn 失败且错误为“启动 Cursor 失败”按软成功返回并保留写入与绑定；关闭失败或第二次注入失败为硬失败，但不得回滚已完成的首次注入及持久状态。
+7. 测试只能使用假账号、临时 SQLite 和 fake 进程层；不得读取真实 Cursor 数据库、枚举/关闭/启动真实 Cursor、使用真实凭据联网或控制真实进程。
+
+决策依据：用户对 Play 无确认、最左位置、当前可重切、Windows 强杀 + 受限 UAC 重试、缺键保留旧值、缺邮箱写 `unknown`、Current 持久化语义的封板确认；Cockpit Tools 固定提交的 `src-tauri/src/modules/cursor_account.rs::inject_to_cursor`、`src-tauri/src/modules/cursor_instance.rs`、`src-tauri/src/modules/windows_operation.rs`、`src-tauri/src/commands/cursor.rs::inject_cursor_account`、`src-tauri/src/commands/cursor_instance.rs::cursor_start_instance`、`src/services/cursorService.ts::injectCursorAccount`、`src/pages/CursorAccountsPage.tsx` 与 `src/hooks/useProviderAccountsPage.ts` 的切号链路；本文件 D-003、D-011、D-017、D-022。

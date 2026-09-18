@@ -1,6 +1,6 @@
 # Cursor 额度查看器领域上下文
 
-更新时间：2026-09-18
+更新时间：2026-09-19
 
 ## 产品目标
 
@@ -11,6 +11,9 @@ Cursor Usage Viewer（Cursor 额度查看器）是一个面向 Windows、macOS�
 - **账号**：由网页登录、Access Token、单行网页 Token、Cockpit Tools JSON 或本机 Cursor 数据导入的一条 Cursor 身份记录。
 - **单行网页 Token**：`<user_id>::<accessToken>` 形式的粘贴导入值；`user_id` 必须与 JWT `sub` 中的身份一致，导入后只保存裸 Access Token，不保存包装前缀。
 - **账号摘要**：用于列表、搜索和筛选的非额度字段，包括账号 ID、邮箱、Auth ID、标签、套餐、订阅状态、来源和时间戳。
+- **一键切号**：用户点击账号卡片或列表最左侧 Play 后对默认 Cursor 实例执行的切换：首次注入 → 持久化当前与默认绑定 → 关闭默认实例 → 二次注入 → 以 `--new-window` 启动。点击后不二次确认；当前账号也可再次切换。
+- **当前账号**：上次由本应用主动读取或切换的账号并持久化；重启后继续显示，可能在用户直接于 Cursor 内切号后过期，应用不为校准它而自动读取真实数据库。
+- **默认绑定与启动路径**：切号成功后持久化的默认实例绑定账号，以及用户配置或自动检测的 Cursor 可执行路径；路径缺失时弹层恢复后只重试默认实例启动。
 - **核心额度**：Cursor 账号的 Total、Auto + Composer、API、On-Demand 与计费周期数据，是账号卡片的四组主要额度。
 - **Sand 附加状态**：独立于核心额度的 Grok/Sand 用量、访问资格、重置时间与周期消费；缺失或失败不改变核心额度。
 - **周期消费**：账号在 Bot 周期（Sand 周期起点至今）内全部模型用量事件的美元合计，来自 `GetAggregatedUsageEvents`；界面必须标注“全模型”，它不是纯 Bot 消费，也不是 Total 按计费周期显示的已用金额。
@@ -33,15 +36,16 @@ Cursor Usage Viewer（Cursor 额度查看器）是一个面向 Windows、macOS�
 
 - 主页面采用 Cockpit Tools Cursor 账号页的信息结构：Cockpit 风格的单页外壳、单行工具栏、全选/批量操作区、自适应高密度卡片网格；不再保留旧的“概览 / 账号 / 安全”三页结构。
 - 视觉直接定向移植 Cockpit 固定提交的经典侧栏、Cursor 页面、深浅主题、共享组件和相关 CSS；只做 Cursor-only 数据适配和 Grok/Sand 第五额度扩展，详见 `docs/DECISIONS.md` §D-017。
-- 侧栏保留品牌、Cursor 主入口和底部设置入口；账号页工具栏固定为 `+`、刷新全部、隐私、导出、设置，不显示切号、注入或其他 Provider 能力。
+- 侧栏保留品牌、Cursor 主入口和底部设置入口；账号页工具栏固定为 `+`、刷新全部、隐私、导出、设置。账号卡片与列表的操作区新增最左侧 Play 一键切号（顺序 Play → Tag → Refresh → Export → Delete），不引入其他 Provider 能力。
 - 主窗口照抄 Cockpit Tools 的 1280×800 默认尺寸、900×600 最小尺寸、居中和可缩放配置。
 - 卡片网格照抄 `repeat(auto-fill, minmax(320px, 1fr))`；可用宽度足够时形成三列，窗口变窄时自动降列，账号较多时允许滚动并沿用 Cockpit 的分页结构。
-- 首版常用管理能力包括搜索、套餐与标签筛选、排序、网格/列表切换、网页登录、裸 Access Token/单行网页 Token/Cockpit JSON/本机导入、选中/全部刷新、自动刷新和删除本地记录。
+- 首版常用管理能力包括搜索、套餐与标签筛选、排序、网格/列表切换、网页登录、裸 Access Token/单行网页 Token/Cockpit JSON/本机导入、选中/全部刷新、默认实例 Play 一键切号、自动刷新和删除本地记录。
 - 完整账号 JSON 导出沿用 Cockpit 行为：支持当前筛选范围、选中账号和单账号导出；点击后直接进入默认遮罩的预览，可显隐、复制及保存；内容包含明文 Token。弹窗另提供“复制网页 Token”，按 `docs/DECISIONS.md` §D-031 把导出范围内各账号转换为 `<user_id>%3A%3A<accessToken>` 网页登录 Token（多账号按行分隔）写入剪贴板。
-- 不加入切换 Cursor 当前账号、向 Cursor 注入 Token、启动 Cursor、多开、第三方 OAuth 或任意 URL；本应用内的固定 Cursor device flow 与定时额度刷新仅按 D-022 的受限方式提供。
+- 除默认实例 Play 一键切号（用户点击触发、精确七键注入、默认 profile 进程关闭/重启、受限 UAC 重试，见 `docs/DECISIONS.md` §D-033）外，不加入向 Cursor 注入 Token、启动 Cursor、多开、第三方 OAuth 或任意 URL；本应用内的固定 Cursor device flow 与定时额度刷新仅按 D-022 的受限方式提供。
 - 启动时可加载已经落盘的账号及最后额度快照，但不得因此自动访问 Cursor 网络端点；应用更新检查可按设置独立访问本项目发布源。
 - 本机 Cursor 当前账号只在用户点击“导入本机当前 Cursor 账号”后只读识别并标记；启动时不自动打开 Cursor 数据库。
-- 已识别的本机当前账号在筛选、用户排序和分页之前固定置顶；其余账号继续按用户选择排序。
+- 已识别的本机当前账号在筛选、用户排序和分页之前固定置顶；其余账号继续按用户选择排序。上次主动读取或 Play 切换的当前账号持久化，重启后继续显示；启动时不自动读取 Cursor 数据库校准。
+- Play 切号会覆盖默认 Cursor 登录状态并强制关闭/重启默认实例；Windows 下未保存内容可能丢失。
 - Windows、macOS、Linux 同时属于首发平台；应用只维护稳定更新通道。
 - 产品长期只服务 Cursor，不以未来多 Provider 为由提前扩张领域模型。
 - 界面首版维护简体中文和英文；公开身份、图标和文案不得暗示官方关联。
@@ -75,4 +79,4 @@ Cursor Usage Viewer（Cursor 额度查看器）是一个面向 Windows、macOS�
 
 ## 仍待确认
 
-- 无。最新实施口径已封板，见 `docs/plans/2026-09-03-cockpit-auto-refresh-and-add-flow.md`。
+- 无。最新实施口径已封板，见 `docs/plans/2026-09-03-cockpit-auto-refresh-and-add-flow.md` 与 `docs/plans/2026-09-18-cockpit-cursor-one-click-switch.md`。

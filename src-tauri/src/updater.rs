@@ -53,6 +53,15 @@ fn parse_release_history(markdown: &str, limit: usize) -> Vec<ReleaseHistoryItem
     for raw_line in markdown.lines() {
         let line = raw_line.trim();
         if let Some(header) = line.strip_prefix("## ") {
+            if header.trim().eq_ignore_ascii_case("unreleased") {
+                if let Some(item) = current.take() {
+                    releases.push(item);
+                    if releases.len() >= limit {
+                        return releases;
+                    }
+                }
+                continue;
+            }
             if let Some(item) = current.take() {
                 releases.push(item);
                 if releases.len() >= limit {

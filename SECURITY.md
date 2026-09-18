@@ -4,7 +4,9 @@
 
 应用启动时只加载自身应用数据目录中已经落盘的账号索引、账号明细、最后额度快照和 Cursor 自动刷新设置，不读取 Cursor 数据库，也不自动发起网页登录。若 Cursor 自动刷新间隔大于 0 且已有账号，Tauri 应用进程可在任务到期时使用现有凭据续期并查询额度；窗口隐藏到托盘后仍继续，退出应用即停止。若用户没有关闭自动更新检查，应用可在界面就绪后独立访问本项目固定 GitHub Release updater endpoint；应用更新和额度刷新是两套独立设置，更新请求不携带任何 Cursor 账号凭据。
 
-用户点击“导入本机当前 Cursor 账号”后，Rust 侧才以只读方式打开当前平台 Cursor 的 `User/globalStorage/state.vscdb`（Windows `%APPDATA%/Cursor`、macOS `~/Library/Application Support/Cursor`、Linux `~/.config/Cursor`），并只查询 `docs/DECISIONS.md` §D-003 列出的五个键。数据库不会被复制或修改。读取结果按账号身份合并进本应用存储；该操作不写回或切换 Cursor。
+用户点击“导入本机当前 Cursor 账号”后，Rust 侧才以只读方式打开当前平台 Cursor 的 `User/globalStorage/state.vscdb`（Windows `%APPDATA%/Cursor`、macOS `~/Library/Application Support/Cursor`、Linux `~/.config/Cursor`），并只查询 `docs/DECISIONS.md` §D-003 列出的五个键。数据库不会被复制或修改。读取结果按账号身份合并进本应用存储；该导入操作本身不写回或切换 Cursor。
+
+用户在账号卡片或列表点击 Play 后（`docs/DECISIONS.md` §D-033），应用按固定顺序对默认实例执行一键切号：首次事务注入默认 `state.vscdb`（精确七键语义：四个必写键始终覆盖，Refresh Token、套餐、订阅状态缺失时保留旧值，邮箱缺失时写 `unknown`），持久化当前账号与默认绑定，校验启动路径，关闭已验证的默认 Cursor 实例（最多 20 秒），重新读取账号并二次注入，再以默认目录和 `--new-window` 启动。Windows 关闭使用 `taskkill /PID … /T /F`，可能丢失未保存内容；访问被拒时可对已验证的 Cursor PID 发起 UAC 提权重试（最多 32 个 PID，白名单仅限当前配置的 Cursor 可执行路径与默认 profile）。路径缺失时首次注入与绑定已完成，按软成功返回并打开路径恢复弹层，保存后只重试默认实例启动，不重新提交前端凭据。错误、日志、DTO 与事件不得包含 Token、邮箱、SQL 值或数据库内容。
 
 用户主动粘贴 Access Token、单行 `<user_id>::<accessToken>` 网页 Token 或 Cockpit Tools JSON 并提交时，敏感输入会短暂经过 WebView 和 Tauri IPC；提交后输入框立即清空。网页 Token 只接受一个 `::` 分隔符，Rust 会校验 `user_id` 与 JWT `sub` 身份一致并只持久化裸 Access Token；包装前缀不落盘。用户也可在本机导入页主动选择单个 `.json` 文件；Rust 只对该精确路径执行扩展名、8 MiB 大小和限长读取，再复用相同的最多 500 账号解析与持久化链路。应用不自动扫描 Cockpit Tools 目录，也不获得通用文件系统权限。
 
@@ -72,7 +74,7 @@ Linux 的 Tauri v2 / GTK3 栈传递依赖 `glib 0.18.5`，受 `GHSA-wrw7-89jp-8q
 
 ## 明确不做
 
-- 切换 Cursor 当前账号、把 Token 注入 Cursor、写回 Cursor 数据库、启动 Cursor 或多开；
+- 除默认实例 Play 一键切号（`docs/DECISIONS.md` §D-033：用户点击触发、精确七键注入、默认 profile 进程关闭/重启、受限 UAC 重试）外，不切换 Cursor 当前账号、不把 Token 注入 Cursor、不写回 Cursor 数据库、不启动 Cursor、不多开；
 - 第三方 OAuth、任意登录/轮询 URL、启动时自动发起网页登录或启动时读取本机 Cursor；
 - 通用文件读取、自动扫描 Cockpit Tools 数据、遥测、崩溃上报、远程日志或云同步；
 - 任意 URL 请求或访问第三方账号服务器。

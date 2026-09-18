@@ -10,6 +10,8 @@ pub enum AppError {
     DatabaseOpen(String),
     #[error("读取 Cursor 数据库失败：{0}")]
     DatabaseRead(String),
+    #[error("写入 Cursor 数据库失败：{0}")]
+    DatabaseWrite(String),
     #[error("当前 Cursor 账号没有可用的 Access Token")]
     AccessTokenMissing,
     #[error("没有进行中的 Cursor 登录会话")]
