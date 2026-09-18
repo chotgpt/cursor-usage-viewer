@@ -4,6 +4,7 @@
 
 - Upstream: <https://github.com/jlcodes99/cockpit-tools>
 - Fixed source commit: `a0508ae815e104e931dae515389e680840008367`
+- Local read-only snapshot: `references/cockpit-tools/`
 - Upstream author/project attribution: jlcodes99 / Cockpit Tools
 - Upstream license: CC BY-NC-SA 4.0
 - This project license: CC BY-NC-SA 4.0

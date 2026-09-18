@@ -1,6 +1,8 @@
 mod cockpit_import;
 mod cursor_db;
+mod cursor_launch;
 mod cursor_oauth;
+mod cursor_runtime;
 mod cursor_settings;
 mod desktop;
 mod error;
@@ -16,6 +18,13 @@ mod updater;
 use tauri::{Emitter, Manager, State};
 use zeroize::Zeroizing;
 
+use cursor_launch::{
+    build_launch_plan, classify_processes, close_default_instance, default_user_data_dir,
+    detect_launch_path, format_close_failure, revalidate_last_pid, run_elevated_taskkill,
+    running_cursor_executables, select_default_instance_pids, start_default_instance,
+    validate_elevation_targets, validate_launch_path, CursorProcessOps, Platform, SystemClock,
+    SystemProcessOps, CLOSE_TIMEOUT_MILLIS, WINDOWS_CANDIDATE_SCAN_TIMEOUT_MILLIS,
+};
 use cursor_settings::CursorSettings;
 use desktop::{CloseBehavior, DesktopSettings};
 use model::{BatchAccountResult, CursorAccountView};
@@ -182,6 +191,310 @@ fn select_cursor_account(
     state: State<'_, AppState>,
 ) -> Result<CursorAccountView, String> {
     state.select(&account_id).map_err(|error| error.to_string())
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SwitchAccountResult {
+    account: CursorAccountView,
+    launch_status: String,
+}
+
+#[tauri::command]
+async fn inject_cursor_account(
+    account_id: String,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<SwitchAccountResult, String> {
+    let _gate = state.switch_gate.lock().await;
+    switch_default_cursor(&state, &account_id, &app, true).await
+}
+
+#[tauri::command]
+async fn start_default_cursor_instance(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<SwitchAccountResult, String> {
+    let _gate = state.switch_gate.lock().await;
+    let account_id = state
+        .cursor_runtime()
+        .map_err(|error| error.to_string())?
+        .default_bind_account_id
+        .ok_or_else(|| "没有已绑定的默认 Cursor 账号".to_string())?;
+    switch_default_cursor(&state, &account_id, &app, false).await
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CursorLaunchCandidate {
+    target: String,
+    label: String,
+}
+
+#[tauri::command]
+fn get_cursor_app_path(state: State<'_, AppState>) -> Result<Option<String>, String> {
+    state.cursor_app_path().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn detect_cursor_app_path(
+    force: Option<bool>,
+    state: State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    let force = force.unwrap_or(false);
+    let platform = Platform::current();
+    let saved = state.cursor_app_path().map_err(|error| error.to_string())?;
+    let local_appdata = std::env::var_os("LOCALAPPDATA").map(std::path::PathBuf::from);
+    let running = running_cursor_executables(&SystemProcessOps.snapshot(), std::process::id());
+    let detected = detect_launch_path(
+        platform,
+        saved.as_deref(),
+        force,
+        local_appdata.as_deref(),
+        &running,
+        &|path| path.exists(),
+    );
+    let Some(path) = detected else {
+        return Ok(None);
+    };
+    let text = path.to_string_lossy().into_owned();
+    state
+        .set_cursor_app_path(Some(text.clone()))
+        .map_err(|error| error.to_string())?;
+    Ok(Some(text))
+}
+
+#[tauri::command]
+async fn scan_cursor_app_path() -> Result<Vec<CursorLaunchCandidate>, String> {
+    let task = tokio::task::spawn_blocking(|| {
+        running_cursor_executables(&SystemProcessOps.snapshot(), std::process::id())
+            .into_iter()
+            .map(|path| {
+                let target = path.to_string_lossy().into_owned();
+                CursorLaunchCandidate {
+                    label: path
+                        .file_name()
+                        .map(|name| name.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| "Cursor".to_owned()),
+                    target,
+                }
+            })
+            .collect::<Vec<_>>()
+    });
+    match tokio::time::timeout(
+        std::time::Duration::from_millis(WINDOWS_CANDIDATE_SCAN_TIMEOUT_MILLIS),
+        task,
+    )
+    .await
+    {
+        Ok(Ok(candidates)) => Ok(candidates),
+        Ok(Err(_)) => Err("检测运行中的 Cursor 任务失败".to_string()),
+        Err(_) => Err("检测运行中的 Cursor 超时，请重试".to_string()),
+    }
+}
+
+#[tauri::command]
+fn save_cursor_app_path(
+    path: String,
+    state: State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return state
+            .set_cursor_app_path(None)
+            .map_err(|error| error.to_string());
+    }
+    let platform = Platform::current();
+    let executable = validate_launch_path(platform, trimmed, &|candidate| candidate.exists())
+        .map_err(|error| error.to_string())?;
+    state
+        .set_cursor_app_path(Some(executable.to_string_lossy().into_owned()))
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn windows_elevated_close_cursor_processes(
+    pids: Vec<u32>,
+    state: State<'_, AppState>,
+) -> Result<u32, String> {
+    let saved = state
+        .cursor_app_path()
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "WINDOWS_ELEVATION_TARGET_NOT_ALLOWED".to_string())?;
+    let platform = Platform::current();
+    let executable = validate_launch_path(platform, &saved, &|path| path.exists())
+        .map_err(|_| "WINDOWS_ELEVATION_TARGET_NOT_ALLOWED".to_string())?;
+    let user_data_dir =
+        default_user_data_dir().ok_or_else(|| error::AppError::AppDataUnavailable.to_string())?;
+    tokio::task::spawn_blocking(move || {
+        let ops = SystemProcessOps;
+        let expected = executable.to_string_lossy().into_owned();
+        let entries = classify_processes(platform, &ops.snapshot(), &expected, std::process::id());
+        let targets = validate_elevation_targets(platform, &pids, &entries, &user_data_dir)?;
+        run_elevated_taskkill(&targets)?;
+        let remaining: Vec<u32> = targets
+            .iter()
+            .copied()
+            .filter(|pid| ops.is_running(*pid))
+            .collect();
+        if !remaining.is_empty() {
+            return Err(format!(
+                "WINDOWS_ELEVATION_TARGET_STILL_RUNNING: pids={}",
+                remaining
+                    .iter()
+                    .map(u32::to_string)
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ));
+        }
+        Ok(targets.len() as u32)
+    })
+    .await
+    .map_err(|_| "切号任务中断".to_string())?
+}
+
+fn join_switch<T>(result: Result<T, tokio::task::JoinError>) -> Result<T, String> {
+    result.map_err(|_| "切号任务中断".to_string())
+}
+
+async fn switch_default_cursor(
+    state: &AppState,
+    account_id: &str,
+    app: &tauri::AppHandle,
+    first_inject: bool,
+) -> Result<SwitchAccountResult, String> {
+    let account = state
+        .record(account_id)
+        .map_err(|error| error.to_string())?;
+    if account.access_token.trim().is_empty() {
+        return Err(error::AppError::AccessTokenMissing.to_string());
+    }
+    let db_path = cursor_db::default_cursor_database_path().map_err(|error| error.to_string())?;
+    if first_inject {
+        let inject_account = account.clone();
+        let inject_path = db_path.clone();
+        join_switch(
+            tokio::task::spawn_blocking(move || {
+                cursor_db::inject_cursor_account_record(&inject_path, &inject_account)
+            })
+            .await,
+        )?
+        .map_err(|error| error.to_string())?;
+        state
+            .mark_switched(account_id)
+            .map_err(|error| error.to_string())?;
+    }
+
+    let platform = Platform::current();
+    let saved = state.cursor_app_path().map_err(|error| error.to_string())?;
+    let executable = match saved.as_deref() {
+        Some(path) => match validate_launch_path(platform, path, &|candidate| candidate.exists()) {
+            Ok(path) => path,
+            Err(_) => {
+                let _ = app.emit(
+                    "app:path_missing",
+                    serde_json::json!({ "app": "cursor", "retry": { "kind": "default" } }),
+                );
+                return switched_account(state, account_id, "pathRequired");
+            }
+        },
+        None => {
+            let _ = app.emit(
+                "app:path_missing",
+                serde_json::json!({ "app": "cursor", "retry": { "kind": "default" } }),
+            );
+            return switched_account(state, account_id, "pathRequired");
+        }
+    };
+
+    let user_data_dir =
+        default_user_data_dir().ok_or_else(|| error::AppError::AppDataUnavailable.to_string())?;
+    let last_pid = state
+        .cursor_runtime()
+        .map_err(|error| error.to_string())?
+        .last_pid;
+    let close_executable = executable.clone();
+    let close_dir = user_data_dir.clone();
+    join_switch(
+        tokio::task::spawn_blocking(move || {
+            let ops = SystemProcessOps;
+            let clock = SystemClock::default();
+            let expected = close_executable.to_string_lossy().into_owned();
+            let entries =
+                classify_processes(platform, &ops.snapshot(), &expected, std::process::id());
+            let mut pids = select_default_instance_pids(platform, &entries, &close_dir);
+            if let Some(pid) = revalidate_last_pid(last_pid, &pids, &|value| ops.is_running(value))
+            {
+                pids.retain(|value| *value != pid);
+                pids.insert(0, pid);
+            }
+            close_default_instance(&ops, &clock, &pids, CLOSE_TIMEOUT_MILLIS).map_err(|failure| {
+                cursor_launch::LaunchError::CloseFailed(format_close_failure(&failure)).to_string()
+            })
+        })
+        .await,
+    )??;
+
+    let second = state
+        .record(account_id)
+        .map_err(|error| error.to_string())?;
+    let second_path = db_path.clone();
+    let second_account = second.clone();
+    join_switch(
+        tokio::task::spawn_blocking(move || {
+            cursor_db::inject_cursor_account_record(&second_path, &second_account)
+        })
+        .await,
+    )?
+    .map_err(|error| error.to_string())?;
+
+    let launch_executable = executable.clone();
+    let launch_dir = user_data_dir.clone();
+    let launched = join_switch(
+        tokio::task::spawn_blocking(move || {
+            let ops = SystemProcessOps;
+            let clock = SystemClock::default();
+            let plan = build_launch_plan(platform, &launch_executable, &launch_dir)?;
+            start_default_instance(
+                &ops,
+                &clock,
+                &plan,
+                platform,
+                &launch_executable.to_string_lossy(),
+                &launch_dir,
+            )
+        })
+        .await,
+    )?;
+    match launched {
+        Ok(pid) => {
+            state
+                .set_last_cursor_pid(pid)
+                .map_err(|error| error.to_string())?;
+            switched_account(state, account_id, "launched")
+        }
+        Err(cursor_launch::LaunchError::SpawnFailed(_)) => {
+            switched_account(state, account_id, "launchFailed")
+        }
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+fn switched_account(
+    state: &AppState,
+    account_id: &str,
+    launch_status: &str,
+) -> Result<SwitchAccountResult, String> {
+    let account = state
+        .list()
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .find(|item| item.id == account_id)
+        .ok_or_else(|| error::AppError::AccountNotFound.to_string())?;
+    Ok(SwitchAccountResult {
+        account,
+        launch_status: launch_status.to_owned(),
+    })
 }
 
 #[tauri::command]
@@ -640,6 +953,13 @@ pub fn run() {
             complete_cursor_login,
             cancel_cursor_login,
             select_cursor_account,
+            inject_cursor_account,
+            start_default_cursor_instance,
+            get_cursor_app_path,
+            detect_cursor_app_path,
+            scan_cursor_app_path,
+            save_cursor_app_path,
+            windows_elevated_close_cursor_processes,
             query_cursor_usage,
             refresh_cursor_account,
             refresh_cursor_accounts,

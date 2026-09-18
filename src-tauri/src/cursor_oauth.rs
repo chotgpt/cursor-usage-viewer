@@ -216,10 +216,7 @@ impl CursorOAuthManager {
 }
 
 pub fn record_from_access_token(access_token: String) -> AppResult<CursorAccountRecord> {
-    let access_token = access_token.trim().to_owned();
-    if access_token.len() > 64 * 1024 || !valid_jwt(&access_token) {
-        return Err(AppError::AccessTokenMissing);
-    }
+    let access_token = normalize_access_token_input(access_token)?;
     let auth_id = jwt_claim(&access_token, "sub");
     Ok(record_from_credentials(
         access_token,
@@ -227,6 +224,44 @@ pub fn record_from_access_token(access_token: String) -> AppResult<CursorAccount
         auth_id,
         "token-import",
     ))
+}
+
+fn normalize_access_token_input(input: String) -> AppResult<String> {
+    let input = Zeroizing::new(input);
+    let value = input.trim();
+    if value.len() > 64 * 1024 {
+        return Err(AppError::AccessTokenMissing);
+    }
+    let Some((user_id, access_token)) = value.split_once("::") else {
+        // Exported cookie values use this encoded separator, but D-032 only
+        // permits the explicitly approved raw `user_id::JWT` import form.
+        if value
+            .as_bytes()
+            .windows(b"%3A%3A".len())
+            .any(|part| part.eq_ignore_ascii_case(b"%3A%3A"))
+        {
+            return Err(AppError::InvalidSessionToken);
+        }
+        return valid_jwt(value)
+            .then(|| value.to_owned())
+            .ok_or(AppError::AccessTokenMissing);
+    };
+    if access_token.contains("::")
+        || user_id.len() <= "user_".len()
+        || !user_id.starts_with("user_")
+        || !user_id
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
+        || access_token.chars().any(char::is_whitespace)
+        || !valid_jwt(access_token)
+    {
+        return Err(AppError::InvalidSessionToken);
+    }
+    let subject = jwt_claim(access_token, "sub").ok_or(AppError::InvalidSessionToken)?;
+    if subject.rsplit('|').next() != Some(user_id) {
+        return Err(AppError::InvalidSessionToken);
+    }
+    Ok(access_token.to_owned())
 }
 
 fn record_from_credentials(
@@ -333,6 +368,13 @@ fn now_seconds() -> i64 {
 mod tests {
     use super::*;
 
+    fn fake_access_token(subject: &str) -> String {
+        format!(
+            "e30.{}.signature",
+            URL_SAFE_NO_PAD.encode(serde_json::json!({ "sub": subject }).to_string())
+        )
+    }
+
     #[test]
     fn login_and_poll_allowlists_reject_uncontrolled_urls() {
         let manager = CursorOAuthManager::new().unwrap();
@@ -353,6 +395,48 @@ mod tests {
         assert!(view.has_access_token);
         assert!(!serde_json::to_string(&view).unwrap().contains(token));
         assert!(record_from_access_token("not-a-jwt".to_owned()).is_err());
+    }
+
+    #[test]
+    fn single_line_web_token_import_persists_only_the_bare_jwt() {
+        let access_token = fake_access_token("auth0|user_01TEST");
+        let wrapped = format!("user_01TEST::{access_token}");
+        let record = record_from_access_token(wrapped.clone()).unwrap();
+        let bare_record = record_from_access_token(access_token.clone()).unwrap();
+
+        assert_eq!(record.id, bare_record.id);
+        assert_eq!(record.access_token, access_token);
+        assert_eq!(record.auth_id.as_deref(), Some("auth0|user_01TEST"));
+        assert_eq!(
+            record.cursor_auth_raw.as_ref().unwrap()["accessToken"],
+            access_token
+        );
+        assert!(!serde_json::to_string(&record).unwrap().contains(&wrapped));
+    }
+
+    #[test]
+    fn single_line_web_token_import_rejects_untrusted_wrappers_without_echoing_them() {
+        let access_token = fake_access_token("auth0|user_01TEST");
+        let invalid = [
+            format!("other_01TEST::{access_token}"),
+            format!("user_::{access_token}"),
+            format!("user_01TEST!::{access_token}"),
+            format!("user_01OTHER::{access_token}"),
+            "user_01TEST::e30.e30.signature".to_owned(),
+            format!("user_01TEST::{access_token}::extra"),
+            format!("user_01TEST%3A%3A{access_token}"),
+            format!("user_01TEST%3a%3a{access_token}"),
+            format!("user_01TEST::{access_token}\nextra"),
+            format!("user_01TEST::{access_token} extra"),
+        ];
+
+        for value in invalid {
+            let error = record_from_access_token(value.clone())
+                .unwrap_err()
+                .to_string();
+            assert!(!error.contains(&value));
+            assert!(!error.contains(&access_token));
+        }
     }
 
     #[test]

@@ -10,6 +10,7 @@ use zeroize::Zeroizing;
 
 use crate::{
     cursor_oauth::CursorOAuthManager,
+    cursor_runtime::{CursorRuntimeState, CursorRuntimeStore},
     cursor_settings::{CursorSettings, CursorSettingsStore},
     desktop::{CloseBehavior, DesktopSettings, DesktopSettingsStore},
     error::{AppError, AppResult},
@@ -28,7 +29,11 @@ pub struct AppState {
     updates: Mutex<UpdateSettingsStore>,
     last_saved_export: Mutex<Option<PathBuf>>,
     cursor_settings: Mutex<CursorSettingsStore>,
+    cursor_runtime: Mutex<CursorRuntimeStore>,
     pub refresh_gate: tokio::sync::Mutex<()>,
+    /// 与 `refresh_gate` 分离，确保切号编排的等待不会阻塞额度刷新，
+    /// 同时两次切号也不会并发写入同一个 Cursor 数据库（D-033 计划 §4.1）。
+    pub switch_gate: tokio::sync::Mutex<()>,
     scheduler_generation: AtomicU64,
     scheduler_stopped: AtomicBool,
 }
@@ -38,16 +43,37 @@ impl AppState {
         let desktop = DesktopSettingsStore::new(&data_dir);
         let updates = UpdateSettingsStore::new(&data_dir);
         let cursor_settings = CursorSettingsStore::new(&data_dir);
+        let cursor_runtime = CursorRuntimeStore::new(&data_dir);
+        let store = AccountStore::new(data_dir);
+
+        // D-033 §5：恢复上次主动读取/切换的账号标记，但不读取真实 Cursor 数据库
+        // 来校准它；指向已删除账号的悬空引用在这里就地清理。
+        let mut runtime = cursor_runtime.load().unwrap_or_default();
+        let known_ids = store
+            .list_views(None)
+            .map(|views| {
+                views
+                    .into_iter()
+                    .map(|view| view.id)
+                    .collect::<Vec<String>>()
+            })
+            .unwrap_or_default();
+        if runtime.prune_unknown_accounts(|id| known_ids.iter().any(|known| known == id)) {
+            let _ = cursor_runtime.save(&runtime);
+        }
+
         Ok(Self {
-            store: Mutex::new(AccountStore::new(data_dir)),
-            current_id: Mutex::new(None),
+            store: Mutex::new(store),
+            current_id: Mutex::new(runtime.current_account_id.clone()),
             provider: CursorUsageProvider::new()?,
             oauth: CursorOAuthManager::new()?,
             desktop: Mutex::new(desktop),
             updates: Mutex::new(updates),
             last_saved_export: Mutex::new(None),
             cursor_settings: Mutex::new(cursor_settings),
+            cursor_runtime: Mutex::new(cursor_runtime),
             refresh_gate: tokio::sync::Mutex::new(()),
+            switch_gate: tokio::sync::Mutex::new(()),
             scheduler_generation: AtomicU64::new(0),
             scheduler_stopped: AtomicBool::new(false),
         })
@@ -84,6 +110,7 @@ impl AppState {
                 .current_id
                 .lock()
                 .map_err(|_| AppError::StateUnavailable)? = Some(id.clone());
+            self.patch_runtime(|runtime| runtime.current_account_id = Some(id.clone()))?;
         }
         let current = self
             .current_id
@@ -146,6 +173,10 @@ impl AppState {
         if current.as_deref() == Some(account_id) {
             *current = None;
         }
+        drop(current);
+        self.patch_runtime(|runtime| {
+            runtime.prune_unknown_accounts(|id| id != account_id);
+        })?;
         Ok(())
     }
 
@@ -164,6 +195,10 @@ impl AppState {
         {
             *current = None;
         }
+        drop(current);
+        self.patch_runtime(|runtime| {
+            runtime.prune_unknown_accounts(|id| !account_ids.iter().any(|deleted| deleted == id));
+        })?;
         Ok(())
     }
 
@@ -306,13 +341,70 @@ impl AppState {
             .load()
     }
 
+    /// 只写入自动刷新间隔。切号启动路径由 `set_cursor_app_path` 单独维护，
+    /// 因此设置页提交的旧快照不会把路径清空（D-033 计划 §2.1）。
     pub fn save_cursor_settings(&self, settings: &CursorSettings) -> AppResult<CursorSettings> {
-        self.cursor_settings
+        settings.validate()?;
+        let minutes = settings.auto_refresh_minutes;
+        let saved = self
+            .cursor_settings
             .lock()
             .map_err(|_| AppError::StateUnavailable)?
-            .save(settings)?;
+            .patch(|current| current.auto_refresh_minutes = minutes)?;
         self.scheduler_generation.fetch_add(1, Ordering::SeqCst);
-        Ok(settings.clone())
+        Ok(saved)
+    }
+
+    pub fn cursor_app_path(&self) -> AppResult<Option<String>> {
+        Ok(self.cursor_settings()?.cursor_app_path)
+    }
+
+    pub fn set_cursor_app_path(&self, path: Option<String>) -> AppResult<Option<String>> {
+        let normalized = path
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty());
+        let saved = self
+            .cursor_settings
+            .lock()
+            .map_err(|_| AppError::StateUnavailable)?
+            .patch(|current| current.cursor_app_path = normalized)?;
+        Ok(saved.cursor_app_path)
+    }
+
+    pub fn cursor_runtime(&self) -> AppResult<CursorRuntimeState> {
+        self.cursor_runtime
+            .lock()
+            .map_err(|_| AppError::StateUnavailable)?
+            .load()
+    }
+
+    fn patch_runtime<F>(&self, apply: F) -> AppResult<CursorRuntimeState>
+    where
+        F: FnOnce(&mut CursorRuntimeState),
+    {
+        self.cursor_runtime
+            .lock()
+            .map_err(|_| AppError::StateUnavailable)?
+            .patch(apply)
+    }
+
+    /// 首次注入成功后调用：同时落盘“当前账号”和默认实例绑定，即使后续缺路径、
+    /// 关闭失败或启动失败也保留这份部分成功状态（D-033 §6）。
+    pub fn mark_switched(&self, account_id: &str) -> AppResult<()> {
+        *self
+            .current_id
+            .lock()
+            .map_err(|_| AppError::StateUnavailable)? = Some(account_id.to_owned());
+        self.patch_runtime(|runtime| {
+            runtime.current_account_id = Some(account_id.to_owned());
+            runtime.default_bind_account_id = Some(account_id.to_owned());
+        })?;
+        Ok(())
+    }
+
+    pub fn set_last_cursor_pid(&self, pid: Option<u32>) -> AppResult<()> {
+        self.patch_runtime(|runtime| runtime.last_pid = pid)?;
+        Ok(())
     }
 
     pub fn scheduler_generation(&self) -> u64 {
@@ -333,8 +425,10 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
+    /// D-033 §5 取代了原先“重启后丢弃当前标记”的契约：上次主动读取或切换的
+    /// 账号必须持久化，且恢复时不得读取真实 Cursor 数据库来校准。
     #[test]
-    fn restart_restores_accounts_but_not_runtime_current_marker() {
+    fn restart_restores_the_persisted_current_account_marker() {
         let directory = tempdir().unwrap();
         let state = AppState::new(directory.path().to_path_buf()).unwrap();
         state
@@ -344,9 +438,95 @@ mod tests {
             )
             .unwrap();
         assert!(state.list().unwrap()[0].is_current);
+
         let reopened = AppState::new(directory.path().to_path_buf()).unwrap();
-        assert_eq!(reopened.list().unwrap().len(), 1);
-        assert!(!reopened.list().unwrap()[0].is_current);
+        let views = reopened.list().unwrap();
+        assert_eq!(views.len(), 1);
+        assert!(views[0].is_current);
+        assert_eq!(
+            reopened.cursor_runtime().unwrap().current_account_id,
+            Some("one".to_owned())
+        );
+    }
+
+    #[test]
+    fn switching_persists_current_and_default_binding_across_restarts() {
+        let directory = tempdir().unwrap();
+        let state = AppState::new(directory.path().to_path_buf()).unwrap();
+        state
+            .upsert(
+                CursorAccountRecord::fake_for_test("one", "one@example.invalid", "a.b.c"),
+                false,
+            )
+            .unwrap();
+        state.mark_switched("one").unwrap();
+        state.set_last_cursor_pid(Some(321)).unwrap();
+
+        let reopened = AppState::new(directory.path().to_path_buf()).unwrap();
+        let runtime = reopened.cursor_runtime().unwrap();
+        assert_eq!(runtime.current_account_id.as_deref(), Some("one"));
+        assert_eq!(runtime.default_bind_account_id.as_deref(), Some("one"));
+        assert_eq!(runtime.last_pid, Some(321));
+        assert!(reopened.list().unwrap()[0].is_current);
+    }
+
+    #[test]
+    fn deleting_the_switched_account_clears_current_and_binding() {
+        let directory = tempdir().unwrap();
+        let state = AppState::new(directory.path().to_path_buf()).unwrap();
+        state
+            .upsert(
+                CursorAccountRecord::fake_for_test("one", "one@example.invalid", "a.b.c"),
+                false,
+            )
+            .unwrap();
+        state.mark_switched("one").unwrap();
+        state.delete("one").unwrap();
+
+        let runtime = state.cursor_runtime().unwrap();
+        assert_eq!(runtime.current_account_id, None);
+        assert_eq!(runtime.default_bind_account_id, None);
+        assert_eq!(
+            AppState::new(directory.path().to_path_buf())
+                .unwrap()
+                .cursor_runtime()
+                .unwrap()
+                .current_account_id,
+            None
+        );
+    }
+
+    #[test]
+    fn a_dangling_persisted_current_account_is_dropped_on_startup() {
+        let directory = tempdir().unwrap();
+        let state = AppState::new(directory.path().to_path_buf()).unwrap();
+        state.mark_switched("never-stored").unwrap();
+
+        let reopened = AppState::new(directory.path().to_path_buf()).unwrap();
+        assert_eq!(reopened.cursor_runtime().unwrap().current_account_id, None);
+    }
+
+    #[test]
+    fn saving_auto_refresh_settings_keeps_the_configured_launch_path() {
+        let directory = tempdir().unwrap();
+        let state = AppState::new(directory.path().to_path_buf()).unwrap();
+        state
+            .set_cursor_app_path(Some("  /fake/Cursor  ".to_owned()))
+            .unwrap();
+        state
+            .save_cursor_settings(&CursorSettings {
+                auto_refresh_minutes: 15,
+                ..CursorSettings::default()
+            })
+            .unwrap();
+
+        let settings = state.cursor_settings().unwrap();
+        assert_eq!(settings.auto_refresh_minutes, 15);
+        assert_eq!(settings.cursor_app_path.as_deref(), Some("/fake/Cursor"));
+        assert_eq!(
+            state.set_cursor_app_path(Some("   ".to_owned())).unwrap(),
+            None
+        );
     }
 
     #[test]

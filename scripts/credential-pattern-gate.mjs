@@ -11,6 +11,7 @@ const patterns = [
 ];
 const hits = [];
 for (const file of files) {
+  if (file.replaceAll("\\", "/").startsWith("references/cockpit-tools/")) continue;
   const bytes = fs.readFileSync(file);
   if (bytes.includes(0)) continue;
   const text = bytes.toString("utf8");

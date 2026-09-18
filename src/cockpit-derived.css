@@ -372,7 +372,9 @@ body {
 .ghcp-account-card .card-actions { display: flex; gap: 6px; }
 .ghcp-account-card .card-action-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: var(--radius-sm); color: var(--text-secondary); background: var(--bg-tertiary); cursor: pointer; transition: all .2s; }
 .ghcp-account-card .card-action-btn:hover { color: var(--text-primary); background: var(--bg-hover); }
-.ghcp-account-card .card-action-btn.danger:hover { color: white; background: var(--danger); }
+.ghcp-account-card .card-action-btn.success:hover:not(:disabled) { color: white; background: var(--success); }
+.ghcp-account-card .card-action-btn.danger:hover:not(:disabled) { color: white; background: var(--danger); }
+.ghcp-account-card .card-action-btn:disabled { cursor: not-allowed; }
 [data-theme="dark"] .ghcp-account-card { background: linear-gradient(170deg, rgba(15,23,42,.95), rgba(15,23,42,.8)); }
 
 .empty-state { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; min-height: 300px; padding: 60px 20px; gap: 16px; border: 1px dashed var(--border); border-radius: var(--radius-lg); color: var(--text-muted); background: var(--bg-card); text-align: center; }
@@ -394,7 +396,7 @@ body {
 .tag-group-row td { padding: 8px 12px; background: var(--bg-tertiary); }
 
 .account-table-container { overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-card); box-shadow: var(--shadow-sm); backdrop-filter: blur(10px); }
-.account-table { width: 100%; min-width: 1020px; table-layout: fixed; border-collapse: collapse; }
+.account-table { width: 100%; min-width: 1080px; table-layout: fixed; border-collapse: collapse; }
 .account-table th:nth-child(1), .account-table td:nth-child(1) { width: 3.5%; }
 .account-table th:nth-child(2), .account-table td:nth-child(2) { width: 18%; }
 .account-table th:nth-child(3), .account-table td:nth-child(3) { width: 6.5%; }
@@ -404,7 +406,7 @@ body {
 .account-table th:nth-child(7), .account-table td:nth-child(7) { width: 9.5%; }
 .account-table th:nth-child(8), .account-table td:nth-child(8) { width: 16%; }
 .account-table th:nth-child(9), .account-table td:nth-child(9) { width: 8%; }
-.account-table th:nth-child(10), .account-table td:nth-child(10) { width: 10%; padding-inline: 8px; }
+.account-table th:nth-child(10), .account-table td:nth-child(10) { width: 12%; padding-inline: 8px; }
 .account-table th { padding: 14px 12px; border-bottom: 1px solid var(--border); color: var(--text-secondary); background: var(--bg-tertiary); font-size: 11px; font-weight: 600; text-align: left; white-space: nowrap; }
 .account-table td { padding: 12px; border-bottom: 1px solid var(--border-light); color: var(--text-primary); font-size: 11px; vertical-align: middle; }
 .account-table tr:last-child td { border-bottom: 0; }
@@ -436,7 +438,7 @@ body {
 .table-updated { color: var(--text-secondary) !important; font-size: 11px !important; line-height: 1.35; }
 .table-updated-date, .table-updated-time { display: block; white-space: nowrap; }
 .table-updated-time { color: var(--text-secondary); font-family: var(--font-mono); }
-.table-actions { display: flex; gap: 2px; }.action-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; color: var(--text-secondary); background: var(--bg-tertiary); }.action-btn:hover { color: var(--primary); }.action-btn.danger:hover { color: var(--danger); }
+.table-actions { display: flex; gap: 2px; }.action-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; color: var(--text-secondary); background: var(--bg-tertiary); }.action-btn:hover:not(:disabled) { color: var(--primary); }.action-btn.success:hover:not(:disabled) { color: var(--success); }.action-btn.danger:hover:not(:disabled) { color: var(--danger); }.action-btn:disabled { cursor: not-allowed; }
 [data-theme="dark"] .account-table-container { background: rgba(8,11,19,.98); border-color: rgba(148,163,184,.18); box-shadow: 0 18px 36px rgba(2,6,23,.6); }
 [data-theme="dark"] .account-table th { color: rgba(226,232,240,.9); background: rgba(15,23,42,.98); border-bottom-color: rgba(148,163,184,.18); }
 [data-theme="dark"] .account-table tbody tr { background: rgba(15,23,42,.86); } [data-theme="dark"] .account-table td { color: rgba(226,232,240,.92); border-bottom-color: rgba(148,163,184,.1); }
