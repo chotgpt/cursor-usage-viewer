@@ -282,7 +282,7 @@ mod tests {
     fn bundled_changelog_drives_release_history() {
         let items = release_history(Some(1));
         assert_eq!(items.len(), 1);
-        assert_eq!(items[0].version, "0.1.3");
+        assert_eq!(items[0].version, "0.1.4");
         assert!(!items[0].items.is_empty());
     }
 }
