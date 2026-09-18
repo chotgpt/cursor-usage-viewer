@@ -5,6 +5,11 @@
 - Added one-click Play switching of the default Cursor instance (Windows, macOS, Linux): precise seven-key SQLite injection, verified default-profile close/restart with `--new-window`, launch-path recovery and restricted UAC retry on Windows; unsaved Cursor work may be lost.
 - 新增默认 Cursor 实例 Play 一键切号（Windows、macOS、Linux）：精确七键 SQLite 注入、已验证默认 profile 关闭/重启（`--new-window`）、启动路径恢复与 Windows 受限 UAC 重试；未保存内容可能丢失。
 
+## 0.1.4 - 2026-09-19
+
+- Added one-click Play switching of the default Cursor instance and the related launch-path and Windows operation recovery flows.
+- 新增默认 Cursor 实例 Play 一键切号及启动路径、Windows 操作错误恢复流程。
+
 ## 0.1.3 - 2026-09-07
 
 - Added "Copy web token" to the full-export dialog: converts each exported account to a `<user_id>%3A%3A<accessToken>` Cursor web session token, one per line, with in-dialog feedback for skipped accounts.
