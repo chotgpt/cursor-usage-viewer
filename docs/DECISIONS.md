@@ -1,6 +1,6 @@
 # Cursor 额度查看器决策记录
 
-更新时间：2026-09-07
+更新时间：2026-09-18
 
 ## D-001 产品范围与技术栈
 
@@ -335,3 +335,13 @@ Dependabot alert #1（`GHSA-wrw7-89jp-8q8g` / `RUSTSEC-2024-0429`）来自 Linux
 3. 反馈全部在弹窗内呈现：成功后按钮临时显示“已复制网页 Token / Web token copied”；部分账号被跳过时在操作栏下方显示警告计数；没有任何账号可转换或剪贴板写入失败时显示错误，不写入剪贴板。不使用会被弹窗遮罩挡住的全局消息栏。
 
 决策依据：用户 2026-09-07 的明确需求（按钮位置、中英文文案、`<user_id>%3A%3A<accessToken>` 格式、多账号按行分隔、缺失或不合规账号跳过并友好提示）；`src-tauri/src/provider.rs::build_session_cookie` 的既有 user_ 校验与 Cookie 格式；本文件 D-011 的完整账号导出语义与 `SECURITY.md`“本地持久化与导出”。
+
+## D-032 单行网页 Token 导入
+
+用户于 2026-09-18 要求现有“Token / JSON”入口额外支持单行 `<user_id>::<accessToken>`，并明确只增加这一种格式。既有裸 Access Token、Cockpit JSON、JSON 文件、本机账号和网页登录导入保持不变；不增加“邮箱 + Token”多行块，也不接受 `<user_id>%3A%3A<accessToken>` URL 编码形式。
+
+1. 解析和校验只在既有 Rust 敏感导入链路中执行。`user_id` 必须匹配 `user_[A-Za-z0-9_-]+`，Access Token 必须符合既有 JWT 形态限制，且 `user_id` 必须与 JWT payload 的 `sub` 最后一个 `|` 后的值完全一致。额外文本、多个 `::` 分隔符、无法解析的 `sub` 或身份不一致均拒绝；错误不得回显输入。
+2. 包装只是一种导入表示。账号 ID、认证元数据、Bearer 请求、会话 Cookie 构造和本地账号明细全部继续使用裸 Access Token；`<user_id>::` 前缀不得持久化、返回普通 DTO 或写入日志。
+3. 该格式复用现有 Token 输入框、Tauri command、明文账号存储和刷新链路，不新增端点、权限或网络请求。与其他粘贴导入一致，导入只保存账号；只有用户手动刷新或已启用的自动刷新才查询额度。
+
+决策依据：用户 2026-09-18 提供的单行 `user_…::<JWT>` 形态及“只加一个这种就行”的明确范围；本文件 D-022 的单 Token 导入与 D-031 的网页 Token 身份规则；`src-tauri/src/provider.rs::build_session_cookie` 的既有 `user_` 校验。

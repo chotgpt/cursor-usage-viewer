@@ -930,6 +930,29 @@ describe("multi-account workspace", () => {
     expect(document.body.textContent).not.toContain("a.b.c");
   });
 
+  it("routes a single-line web token through the sensitive token command", async () => {
+    const webToken = "user_01TEST::e30.eyJzdWIiOiJhdXRoMHx1c2VyXzAxVEVTVCJ9.signature";
+    const baseImplementation = mockedInvoke.getMockImplementation();
+    mockedInvoke.mockImplementation(async (command, args) => command === "import_cursor_access_token"
+      ? account("cursor_web_token", "web-token@example.invalid")
+      : baseImplementation?.(command, args));
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByText("one@example.invalid");
+    await user.click(screen.getByRole("button", { name: "添加账号" }));
+    const dialog = screen.getByRole("dialog", { name: "添加 Cursor 账号" });
+    await user.click(within(dialog).getByRole("tab", { name: "Token / JSON" }));
+    expect(within(dialog).getByText(/单行 user_…::JWT 网页 Token/)).toBeVisible();
+    const input = within(dialog).getByRole("textbox", { name: "Cursor Access Token 或 Cockpit JSON" });
+    await user.click(input);
+    await user.paste(webToken);
+    await user.click(within(dialog).getByRole("button", { name: "导入" }));
+
+    expect(mockedInvoke).toHaveBeenCalledWith("import_cursor_access_token", { accessToken: webToken });
+    expect(screen.queryByRole("dialog", { name: "添加 Cursor 账号" })).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain(webToken);
+  });
+
   it("clears sensitive import text and keeps the dialog target on failure", async () => {
     mockedInvoke.mockImplementation(async (command) => {
       if (command === "list_cursor_accounts") return listedAccounts;

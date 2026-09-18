@@ -577,6 +577,7 @@ test("Cursor add-account token modal visual contract", async ({ page }) => {
   const dialog = page.getByRole("dialog", { name: "添加 Cursor 账号" });
   await dialog.getByRole("tab", { name: "Token / JSON" }).click();
   await expect(dialog.getByRole("textbox", { name: "Cursor Access Token 或 Cockpit JSON" })).toBeVisible();
+  await expect(dialog.getByText(/单行 user_…::JWT 网页 Token/)).toBeVisible();
   await expect(page).toHaveScreenshot("cursor-add-account-token-dark.png", { fullPage: false });
 });
 

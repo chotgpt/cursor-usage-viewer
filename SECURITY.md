@@ -6,7 +6,7 @@
 
 用户点击“导入本机当前 Cursor 账号”后，Rust 侧才以只读方式打开当前平台 Cursor 的 `User/globalStorage/state.vscdb`（Windows `%APPDATA%/Cursor`、macOS `~/Library/Application Support/Cursor`、Linux `~/.config/Cursor`），并只查询 `docs/DECISIONS.md` §D-003 列出的五个键。数据库不会被复制或修改。读取结果按账号身份合并进本应用存储；该操作不写回或切换 Cursor。
 
-用户主动粘贴 Access Token 或 Cockpit Tools JSON 并提交时，敏感输入会短暂经过 WebView 和 Tauri IPC；提交后输入框立即清空。用户也可在本机导入页主动选择单个 `.json` 文件；Rust 只对该精确路径执行扩展名、8 MiB 大小和限长读取，再复用相同的最多 500 账号解析与持久化链路。应用不自动扫描 Cockpit Tools 目录，也不获得通用文件系统权限。
+用户主动粘贴 Access Token、单行 `<user_id>::<accessToken>` 网页 Token 或 Cockpit Tools JSON 并提交时，敏感输入会短暂经过 WebView 和 Tauri IPC；提交后输入框立即清空。网页 Token 只接受一个 `::` 分隔符，Rust 会校验 `user_id` 与 JWT `sub` 身份一致并只持久化裸 Access Token；包装前缀不落盘。用户也可在本机导入页主动选择单个 `.json` 文件；Rust 只对该精确路径执行扩展名、8 MiB 大小和限长读取，再复用相同的最多 500 账号解析与持久化链路。应用不自动扫描 Cockpit Tools 目录，也不获得通用文件系统权限。
 
 用户点击单账号、选中账号或全部账号刷新，或启用的自动刷新任务到期后，应用按 `docs/DECISIONS.md` §D-012、§D-020、§D-022 访问固定 Cursor 第一方端点。批量刷新逐账号顺序执行，手动与自动动作共用单并发协调；一个账号或可选数据源失败不影响其他账号，下个周期仍可重试。关闭自动刷新时不会产生后台 Cursor 请求。
 

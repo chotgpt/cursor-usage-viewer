@@ -1,6 +1,6 @@
 # Cursor 额度查看器领域上下文
 
-更新时间：2026-09-07
+更新时间：2026-09-18
 
 ## 产品目标
 
@@ -8,7 +8,8 @@ Cursor Usage Viewer（Cursor 额度查看器）是一个面向 Windows、macOS�
 
 ## 核心术语
 
-- **账号**：由网页登录、Access Token、Cockpit Tools JSON 或本机 Cursor 数据导入的一条 Cursor 身份记录。
+- **账号**：由网页登录、Access Token、单行网页 Token、Cockpit Tools JSON 或本机 Cursor 数据导入的一条 Cursor 身份记录。
+- **单行网页 Token**：`<user_id>::<accessToken>` 形式的粘贴导入值；`user_id` 必须与 JWT `sub` 中的身份一致，导入后只保存裸 Access Token，不保存包装前缀。
 - **账号摘要**：用于列表、搜索和筛选的非额度字段，包括账号 ID、邮箱、Auth ID、标签、套餐、订阅状态、来源和时间戳。
 - **核心额度**：Cursor 账号的 Total、Auto + Composer、API、On-Demand 与计费周期数据，是账号卡片的四组主要额度。
 - **Sand 附加状态**：独立于核心额度的 Grok/Sand 用量、访问资格、重置时间与周期消费；缺失或失败不改变核心额度。
@@ -35,7 +36,7 @@ Cursor Usage Viewer（Cursor 额度查看器）是一个面向 Windows、macOS�
 - 侧栏保留品牌、Cursor 主入口和底部设置入口；账号页工具栏固定为 `+`、刷新全部、隐私、导出、设置，不显示切号、注入或其他 Provider 能力。
 - 主窗口照抄 Cockpit Tools 的 1280×800 默认尺寸、900×600 最小尺寸、居中和可缩放配置。
 - 卡片网格照抄 `repeat(auto-fill, minmax(320px, 1fr))`；可用宽度足够时形成三列，窗口变窄时自动降列，账号较多时允许滚动并沿用 Cockpit 的分页结构。
-- 首版常用管理能力包括搜索、套餐与标签筛选、排序、网格/列表切换、网页登录、Token/JSON/本机导入、选中/全部刷新、自动刷新和删除本地记录。
+- 首版常用管理能力包括搜索、套餐与标签筛选、排序、网格/列表切换、网页登录、裸 Access Token/单行网页 Token/Cockpit JSON/本机导入、选中/全部刷新、自动刷新和删除本地记录。
 - 完整账号 JSON 导出沿用 Cockpit 行为：支持当前筛选范围、选中账号和单账号导出；点击后直接进入默认遮罩的预览，可显隐、复制及保存；内容包含明文 Token。弹窗另提供“复制网页 Token”，按 `docs/DECISIONS.md` §D-031 把导出范围内各账号转换为 `<user_id>%3A%3A<accessToken>` 网页登录 Token（多账号按行分隔）写入剪贴板。
 - 不加入切换 Cursor 当前账号、向 Cursor 注入 Token、启动 Cursor、多开、第三方 OAuth 或任意 URL；本应用内的固定 Cursor device flow 与定时额度刷新仅按 D-022 的受限方式提供。
 - 启动时可加载已经落盘的账号及最后额度快照，但不得因此自动访问 Cursor 网络端点；应用更新检查可按设置独立访问本项目发布源。
@@ -52,7 +53,7 @@ Cursor Usage Viewer（Cursor 额度查看器）是一个面向 Windows、macOS�
 - 账号明细保存 Access Token、Refresh Token、账号资料和最后额度快照；Token 与 Cockpit Tools 一样以明文 JSON 落盘，不额外加密。
 - 文件写入使用同目录临时文件替换，并保留 `.bak`；主文件解析失败时尝试备份恢复。
 - 索引缺失或损坏时扫描账号明细、去重并重建索引。
-- 原始导入 JSON 提交后仍须立即清空输入框；凭据不得返回脱敏 DTO 之外的前端状态、写入日志或发送到非白名单目标。
+- 原始 Token 或 JSON 提交后仍须立即清空输入框；凭据及网页 Token 包装前缀不得返回脱敏 DTO 之外的前端状态、写入日志或发送到非白名单目标。
 
 ## 额度数据规则
 
