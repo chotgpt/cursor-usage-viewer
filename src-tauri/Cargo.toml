@@ -37,7 +37,7 @@ url = "2.5.7"
 zeroize = { version = "1.8.1", features = ["derive"] }
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.58", features = ["Win32_Foundation", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Shell"] }
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Shell"] }
 
 [dev-dependencies]
 minisign-verify = "0.2.5"
